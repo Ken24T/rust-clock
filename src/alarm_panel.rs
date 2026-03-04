@@ -31,6 +31,15 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
         .size(15)
         .color(Color::from_rgb(0.9, 0.9, 0.9));
 
+    let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
+        .on_press(Message::DismissAlarmPanel)
+        .padding(Padding::from([1, 5]))
+        .style(delete_button_style);
+
+    let header_row = row![heading, close_btn]
+        .spacing(6)
+        .align_y(alignment::Vertical::Center);
+
     let separator = separator_widget();
 
     // -- Quick timer presets --
@@ -117,7 +126,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
     );
 
     let panel_col = column![
-        heading,
+        header_row,
         separator,
         presets,
         separator_widget(),
