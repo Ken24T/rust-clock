@@ -14,8 +14,10 @@ use iced::keyboard;
 use iced::widget::{canvas, center, stack};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 
-/// Minimum window size when an overlay (context menu or alarm panel) is visible.
-const OVERLAY_MIN_SIZE: f32 = 300.0;
+/// Minimum window width when an overlay is visible.
+const OVERLAY_MIN_WIDTH: f32 = 300.0;
+/// Minimum window height when an overlay is visible.
+const OVERLAY_MIN_HEIGHT: f32 = 500.0;
 use uuid::Uuid;
 
 use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertAction};
@@ -171,9 +173,10 @@ impl ClockApp {
     /// Expand the window if the configured size is too small for an overlay.
     fn expand_for_overlay(&self) -> Task<Message> {
         let s = self.config.size as f32;
-        if s < OVERLAY_MIN_SIZE {
-            window::oldest()
-                .and_then(|id| window::resize(id, Size::new(OVERLAY_MIN_SIZE, OVERLAY_MIN_SIZE)))
+        let w = s.max(OVERLAY_MIN_WIDTH);
+        let h = s.max(OVERLAY_MIN_HEIGHT);
+        if w > s || h > s {
+            window::oldest().and_then(move |id| window::resize(id, Size::new(w, h)))
         } else {
             Task::none()
         }
@@ -182,7 +185,7 @@ impl ClockApp {
     /// Restore the window to the configured clock size after an overlay closes.
     fn restore_window_size(&self) -> Task<Message> {
         let s = self.config.size as f32;
-        if s < OVERLAY_MIN_SIZE {
+        if s < OVERLAY_MIN_WIDTH || s < OVERLAY_MIN_HEIGHT {
             window::oldest().and_then(move |id| window::resize(id, Size::new(s, s)))
         } else {
             Task::none()
@@ -419,7 +422,9 @@ impl ClockApp {
         // When an overlay is visible and the window has been expanded,
         // constrain the clock canvas to its configured size so it doesn't
         // scale up with the larger window.
-        let clock: Element<'_, Message> = if overlay_visible && clock_size < OVERLAY_MIN_SIZE {
+        let clock: Element<'_, Message> = if overlay_visible
+            && (clock_size < OVERLAY_MIN_WIDTH || clock_size < OVERLAY_MIN_HEIGHT)
+        {
             let sized = canvas(&self.clock_face)
                 .width(clock_size)
                 .height(clock_size);
