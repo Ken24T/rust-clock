@@ -49,8 +49,9 @@ fn play_generated_beeps(sink: &Sink) {
             .amplify(0.4);
         sink.append(beep);
 
-        // Short gap between beeps.
-        let silence = SineWave::new(0.0)
+        // Short gap between beeps (use 1 Hz — inaudible — since rodio
+        // requires frequency > 0).
+        let silence = SineWave::new(1.0)
             .take_duration(std::time::Duration::from_millis(150))
             .amplify(0.0);
         sink.append(silence);
