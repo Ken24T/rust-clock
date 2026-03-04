@@ -2,14 +2,16 @@
 //!
 //! Draws a classic analog clock: circular face, 60 tick marks,
 //! configurable numerals, and hour/minute/second hands in various styles.
+//! Handles left-click (drag) and right-click (context menu) interactions.
 
 mod drawing;
 
 use iced::mouse;
-use iced::widget::canvas::{self, Cache, Geometry};
+use iced::widget::canvas::{self, Action, Cache, Event, Geometry};
 use iced::{Point, Rectangle, Renderer, Theme};
 
 use crate::theme::ThemeConfig;
+use crate::Message;
 
 /// Holds the clock state and rendering cache.
 pub struct ClockFace {
@@ -46,8 +48,38 @@ impl ClockFace {
 
 // -- Canvas Program implementation ----------------------------------------
 
-impl<Message> canvas::Program<Message> for ClockFace {
+impl canvas::Program<Message> for ClockFace {
     type State = ();
+
+    fn update(
+        &self,
+        _state: &mut (),
+        event: &Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<Action<Message>> {
+        // Only respond to events when the cursor is inside the clock bounds.
+        let cursor_pos = cursor.position_in(bounds)?;
+
+        // Check if the click is inside the circular face.
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
+        let dx = cursor_pos.x - centre.x;
+        let dy = cursor_pos.y - centre.y;
+        if dx * dx + dy * dy > radius * radius {
+            return None;
+        }
+
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                Some(Action::publish(Message::StartDrag))
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                Some(Action::publish(Message::ToggleContextMenu))
+            }
+            _ => None,
+        }
+    }
 
     fn draw(
         &self,
@@ -66,5 +98,18 @@ impl<Message> canvas::Program<Message> for ClockFace {
         });
 
         vec![clock]
+    }
+
+    fn mouse_interaction(
+        &self,
+        _state: &(),
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> mouse::Interaction {
+        if cursor.is_over(bounds) {
+            mouse::Interaction::Grab
+        } else {
+            mouse::Interaction::default()
+        }
     }
 }
