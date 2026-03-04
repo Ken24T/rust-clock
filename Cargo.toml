@@ -1,6 +1,6 @@
 [package]
 name = "rust-clock"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "A classic analog clock desktop widget (desklet) for Linux"
 license = "MIT"

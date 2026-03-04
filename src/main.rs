@@ -11,8 +11,11 @@ mod context_menu;
 mod theme;
 
 use iced::keyboard;
-use iced::widget::{canvas, stack};
+use iced::widget::{canvas, center, stack};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
+
+/// Minimum window size when an overlay (context menu or alarm panel) is visible.
+const OVERLAY_MIN_SIZE: f32 = 300.0;
 use uuid::Uuid;
 
 use alarm::{play_alarm_sound, AlarmManager, AlertAction};
@@ -135,6 +138,27 @@ impl ClockApp {
         }
     }
 
+    /// Expand the window if the configured size is too small for an overlay.
+    fn expand_for_overlay(&self) -> Task<Message> {
+        let s = self.config.size as f32;
+        if s < OVERLAY_MIN_SIZE {
+            window::oldest()
+                .and_then(|id| window::resize(id, Size::new(OVERLAY_MIN_SIZE, OVERLAY_MIN_SIZE)))
+        } else {
+            Task::none()
+        }
+    }
+
+    /// Restore the window to the configured clock size after an overlay closes.
+    fn restore_window_size(&self) -> Task<Message> {
+        let s = self.config.size as f32;
+        if s < OVERLAY_MIN_SIZE {
+            window::oldest().and_then(move |id| window::resize(id, Size::new(s, s)))
+        } else {
+            Task::none()
+        }
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
@@ -147,9 +171,15 @@ impl ClockApp {
                 Task::none()
             }
             Message::StartDrag => {
+                let was_overlay = self.show_menu || self.show_alarm_panel;
                 self.show_menu = false;
                 self.show_alarm_panel = false;
-                window::oldest().and_then(window::drag)
+                let drag = window::oldest().and_then(window::drag);
+                if was_overlay {
+                    Task::batch([self.restore_window_size(), drag])
+                } else {
+                    drag
+                }
             }
             Message::WindowMoved(point) => {
                 self.config.position = Some((point.x as i32, point.y as i32));
@@ -159,12 +189,16 @@ impl ClockApp {
             Message::ToggleContextMenu => {
                 self.show_alarm_panel = false;
                 self.show_menu = !self.show_menu;
-                Task::none()
+                if self.show_menu {
+                    self.expand_for_overlay()
+                } else {
+                    self.restore_window_size()
+                }
             }
             Message::DismissMenu => {
                 self.show_menu = false;
                 self.show_alarm_panel = false;
-                Task::none()
+                self.restore_window_size()
             }
             Message::SetTheme(name) => {
                 self.config.theme = name;
@@ -172,7 +206,7 @@ impl ClockApp {
                 self.apply_theme();
                 self.save_config();
                 self.show_menu = false;
-                Task::none()
+                self.restore_window_size()
             }
             Message::SetSize(size) => {
                 self.config.size = size;
@@ -198,11 +232,11 @@ impl ClockApp {
             Message::ShowAlarmPanel => {
                 self.show_menu = false;
                 self.show_alarm_panel = true;
-                Task::none()
+                self.expand_for_overlay()
             }
             Message::DismissAlarmPanel => {
                 self.show_alarm_panel = false;
-                Task::none()
+                self.restore_window_size()
             }
             Message::AddQuickTimer(secs) => {
                 let label = format_timer_label(secs);
@@ -225,7 +259,20 @@ impl ClockApp {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let clock = canvas(&self.clock_face).width(Fill).height(Fill);
+        let overlay_visible = self.show_alarm_panel || self.show_menu;
+        let clock_size = self.config.size as f32;
+
+        // When an overlay is visible and the window has been expanded,
+        // constrain the clock canvas to its configured size so it doesn't
+        // scale up with the larger window.
+        let clock: Element<'_, Message> = if overlay_visible && clock_size < OVERLAY_MIN_SIZE {
+            let sized = canvas(&self.clock_face)
+                .width(clock_size)
+                .height(clock_size);
+            center(sized).width(Fill).height(Fill).into()
+        } else {
+            canvas(&self.clock_face).width(Fill).height(Fill).into()
+        };
 
         if self.show_alarm_panel {
             let panel = alarm_panel::alarm_panel(&self.alarm_manager);
@@ -234,7 +281,7 @@ impl ClockApp {
             let menu = ContextMenu::widget(&self.config, &self.alarm_manager);
             stack![clock, menu].into()
         } else {
-            clock.into()
+            clock
         }
     }
 
