@@ -499,14 +499,18 @@ fn send_notification(alarm: &alarm::Alarm) {
             }
         }
     };
-    if let Err(e) = notify_rust::Notification::new()
-        .summary(&summary)
-        .body(&body)
-        .appname("Rust Clock")
-        .timeout(10_000)
-        .show()
+    // Use notify-send directly — notify-rust's zbus backend can silently
+    // fail to display on some desktops (e.g. Cinnamon).
+    match std::process::Command::new("notify-send")
+        .arg("--app-name=Rust Clock")
+        .arg("-t")
+        .arg("10000")
+        .arg(&summary)
+        .arg(&body)
+        .spawn()
     {
-        eprintln!("Failed to send notification: {e}");
+        Ok(_) => {}
+        Err(e) => eprintln!("Failed to send notification: {e}"),
     }
 }
 

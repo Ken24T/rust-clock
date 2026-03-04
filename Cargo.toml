@@ -13,7 +13,6 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 directories = "6"
 rodio = "0.20"
-notify-rust = "4"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [profile.release]
