@@ -16,6 +16,60 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// -- Alarm form state (held by the application) ---------------------------
+
+/// Whether the form is creating a countdown timer or a fixed-time alarm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlarmFormMode {
+    #[default]
+    Timer,
+    Alarm,
+}
+
+/// Editable form state for creating or editing an alarm.
+#[derive(Debug, Clone, Default)]
+pub struct AlarmForm {
+    /// Display label (e.g. "Tea timer").
+    pub label: String,
+    /// Optional notification message.
+    pub message: String,
+    /// Duration in minutes (Timer mode).
+    pub timer_minutes: String,
+    /// Target time as "HH:MM" (Alarm mode).
+    pub alarm_time: String,
+    /// Target date as "YYYY-MM-DD" (Alarm mode, blank = today).
+    pub alarm_date: String,
+    /// Timer or Alarm.
+    pub mode: AlarmFormMode,
+    /// When editing, the ID of the existing alarm.
+    pub editing: Option<Uuid>,
+}
+
+impl AlarmForm {
+    /// Reset all fields to defaults.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Populate the form from an existing alarm for editing.
+    pub fn populate_from(&mut self, alarm: &Alarm) {
+        self.label = alarm.label.clone();
+        self.message = alarm.message.clone().unwrap_or_default();
+        self.editing = Some(alarm.id);
+        match &alarm.kind {
+            AlarmKind::Timer { duration_secs, .. } => {
+                self.mode = AlarmFormMode::Timer;
+                self.timer_minutes = format!("{}", duration_secs / 60);
+            }
+            AlarmKind::AtTime { target } => {
+                self.mode = AlarmFormMode::Alarm;
+                self.alarm_time = target.format("%H:%M").to_string();
+                self.alarm_date = target.format("%Y-%m-%d").to_string();
+            }
+        }
+    }
+}
+
 /// Custom serde module for `DateTime<Local>` as UNIX timestamps.
 /// `chrono::serde::ts_seconds` only works with `DateTime<Utc>`, so we convert
 /// to/from UTC when (de)serialising.
@@ -92,7 +146,6 @@ impl AlarmKind {
     }
 
     /// Create an alarm at a specific date/time.
-    #[allow(dead_code)]
     pub fn at_time(target: DateTime<Local>) -> Self {
         Self::AtTime { target }
     }
@@ -149,7 +202,6 @@ impl Alarm {
     }
 
     /// Set an optional notification message.
-    #[allow(dead_code)]
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
         self.message = Some(message.into());
         self

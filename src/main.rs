@@ -18,7 +18,7 @@ use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 const OVERLAY_MIN_SIZE: f32 = 300.0;
 use uuid::Uuid;
 
-use alarm::{play_alarm_sound, AlarmManager, AlertAction};
+use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertAction};
 use clock_face::ClockFace;
 use config::AppConfig;
 use context_menu::ContextMenu;
@@ -71,6 +71,7 @@ struct ClockApp {
     clock_face: ClockFace,
     config: AppConfig,
     alarm_manager: AlarmManager,
+    alarm_form: AlarmForm,
     show_menu: bool,
     show_alarm_panel: bool,
 }
@@ -106,8 +107,26 @@ pub enum Message {
     AddQuickTimer(u64),
     /// Remove an alarm by ID.
     RemoveAlarm(Uuid),
+    /// Edit an existing alarm — populate the form.
+    EditAlarm(Uuid),
     /// Clear all fired alarms.
     ClearFiredAlarms,
+    /// Form: label text changed.
+    AlarmFormLabelChanged(String),
+    /// Form: message text changed.
+    AlarmFormMessageChanged(String),
+    /// Form: timer minutes text changed.
+    AlarmFormMinutesChanged(String),
+    /// Form: alarm time (HH:MM) changed.
+    AlarmFormTimeChanged(String),
+    /// Form: alarm date (YYYY-MM-DD) changed.
+    AlarmFormDateChanged(String),
+    /// Form: switch between Timer and Alarm mode.
+    AlarmFormSetMode(AlarmFormMode),
+    /// Form: submit (create or update).
+    AlarmFormSubmit,
+    /// Form: cancel editing.
+    AlarmFormCancel,
     /// Quit the application.
     Quit,
 }
@@ -125,6 +144,7 @@ impl ClockApp {
             ),
             config,
             alarm_manager,
+            alarm_form: AlarmForm::default(),
             show_menu: false,
             show_alarm_panel: false,
         }
@@ -167,6 +187,86 @@ impl ClockApp {
         } else {
             Task::none()
         }
+    }
+
+    /// Parse the alarm form and create or update an alarm.
+    fn submit_alarm_form(&mut self) {
+        use alarm::{Alarm, AlarmKind, AlertAction};
+        use chrono::{Local, NaiveDate, NaiveTime};
+
+        let form = &self.alarm_form;
+        let label = if form.label.trim().is_empty() {
+            match form.mode {
+                AlarmFormMode::Timer => "Timer".to_string(),
+                AlarmFormMode::Alarm => "Alarm".to_string(),
+            }
+        } else {
+            form.label.trim().to_string()
+        };
+
+        let message = if form.message.trim().is_empty() {
+            None
+        } else {
+            Some(form.message.trim().to_string())
+        };
+
+        let kind = match form.mode {
+            AlarmFormMode::Timer => {
+                let minutes: u64 = match form.timer_minutes.trim().parse() {
+                    Ok(m) if m > 0 => m,
+                    _ => {
+                        eprintln!("Invalid timer minutes: {}", form.timer_minutes);
+                        return;
+                    }
+                };
+                AlarmKind::from_now(minutes * 60)
+            }
+            AlarmFormMode::Alarm => {
+                let time = match NaiveTime::parse_from_str(form.alarm_time.trim(), "%H:%M") {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("Invalid alarm time '{}': {e}", form.alarm_time);
+                        return;
+                    }
+                };
+                let date = if form.alarm_date.trim().is_empty() {
+                    Local::now().date_naive()
+                } else {
+                    match NaiveDate::parse_from_str(form.alarm_date.trim(), "%Y-%m-%d") {
+                        Ok(d) => d,
+                        Err(e) => {
+                            eprintln!("Invalid alarm date '{}': {e}", form.alarm_date);
+                            return;
+                        }
+                    }
+                };
+                let naive_dt = date.and_time(time);
+                let target = naive_dt
+                    .and_local_timezone(Local)
+                    .single()
+                    .unwrap_or_else(Local::now);
+                AlarmKind::at_time(target)
+            }
+        };
+
+        if let Some(edit_id) = form.editing {
+            // Update existing alarm.
+            let mut alarm = Alarm::new(label, kind, AlertAction::Both);
+            alarm.id = edit_id;
+            if let Some(msg) = message {
+                alarm = alarm.with_message(msg);
+            }
+            self.alarm_manager.update(alarm);
+        } else {
+            // Create new alarm.
+            let mut alarm = Alarm::new(label, kind, AlertAction::Both);
+            if let Some(msg) = message {
+                alarm = alarm.with_message(msg);
+            }
+            self.alarm_manager.add(alarm);
+        }
+
+        self.alarm_form.clear();
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -267,6 +367,44 @@ impl ClockApp {
                 self.alarm_manager.clear_fired();
                 Task::none()
             }
+            Message::EditAlarm(id) => {
+                if let Some(alarm) = self.alarm_manager.get(id) {
+                    self.alarm_form.populate_from(alarm);
+                }
+                Task::none()
+            }
+            Message::AlarmFormLabelChanged(value) => {
+                self.alarm_form.label = value;
+                Task::none()
+            }
+            Message::AlarmFormMessageChanged(value) => {
+                self.alarm_form.message = value;
+                Task::none()
+            }
+            Message::AlarmFormMinutesChanged(value) => {
+                self.alarm_form.timer_minutes = value;
+                Task::none()
+            }
+            Message::AlarmFormTimeChanged(value) => {
+                self.alarm_form.alarm_time = value;
+                Task::none()
+            }
+            Message::AlarmFormDateChanged(value) => {
+                self.alarm_form.alarm_date = value;
+                Task::none()
+            }
+            Message::AlarmFormSetMode(mode) => {
+                self.alarm_form.mode = mode;
+                Task::none()
+            }
+            Message::AlarmFormSubmit => {
+                self.submit_alarm_form();
+                Task::none()
+            }
+            Message::AlarmFormCancel => {
+                self.alarm_form.clear();
+                Task::none()
+            }
             Message::Quit => {
                 self.save_config();
                 window::oldest().and_then(window::close)
@@ -291,7 +429,7 @@ impl ClockApp {
         };
 
         if self.show_alarm_panel {
-            let panel = alarm_panel::alarm_panel(&self.alarm_manager);
+            let panel = alarm_panel::alarm_panel(&self.alarm_manager, &self.alarm_form);
             stack![clock, panel].into()
         } else if self.show_menu {
             let menu = ContextMenu::widget(&self.config, &self.alarm_manager);

@@ -119,6 +119,19 @@ impl AlarmManager {
         self.save();
     }
 
+    /// Find an alarm by ID.
+    pub fn get(&self, id: Uuid) -> Option<&Alarm> {
+        self.alarms.iter().find(|a| a.id == id)
+    }
+
+    /// Replace an existing alarm (same ID) with updated data.
+    pub fn update(&mut self, updated: Alarm) {
+        if let Some(existing) = self.alarms.iter_mut().find(|a| a.id == updated.id) {
+            *existing = updated;
+            self.save();
+        }
+    }
+
     /// Remove all alarms that have already fired.
     pub fn clear_fired(&mut self) {
         self.alarms.retain(|a| !a.fired);
