@@ -21,6 +21,10 @@ pub struct ClockTheme {
     pub second_hand_colour: Color,
     /// Small dot at the centre where hands meet.
     pub centre_dot_colour: Color,
+    /// Shadow colour for drop shadows on hands.
+    pub shadow_colour: Color,
+    /// Colour for the date text shown on the face.
+    pub date_text_colour: Color,
 }
 
 impl ClockTheme {
@@ -35,6 +39,8 @@ impl ClockTheme {
             minute_hand_colour: Color::from_rgb(0.15, 0.15, 0.15),
             second_hand_colour: Color::from_rgb(0.85, 0.10, 0.10),
             centre_dot_colour: Color::from_rgb(0.85, 0.10, 0.10),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+            date_text_colour: Color::from_rgb(0.30, 0.30, 0.30),
         }
     }
 }

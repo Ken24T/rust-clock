@@ -6,6 +6,7 @@
 use std::f32::consts::PI;
 
 use chrono::Timelike;
+
 use iced::alignment;
 use iced::mouse;
 use iced::widget::canvas::{self, stroke, Cache, Frame, Geometry, LineCap, Path, Stroke};
@@ -17,28 +18,37 @@ use crate::theme::ClockTheme;
 pub struct ClockFace {
     theme: ClockTheme,
     now: chrono::NaiveTime,
+    today: chrono::NaiveDate,
+    smooth_seconds: bool,
+    show_date: bool,
     cache: Cache,
 }
 
 impl ClockFace {
     /// Create a new clock face with the given theme, initialised to the current time.
-    pub fn new(theme: ClockTheme) -> Self {
+    pub fn new(theme: ClockTheme, smooth_seconds: bool, show_date: bool) -> Self {
+        let now = chrono::Local::now();
         Self {
             theme,
-            now: chrono::Local::now().time(),
+            now: now.time(),
+            today: now.date_naive(),
+            smooth_seconds,
+            show_date,
             cache: Cache::new(),
         }
     }
 
     /// Refresh the stored time and invalidate the drawing cache.
     pub fn update_time(&mut self) {
-        self.now = chrono::Local::now().time();
+        let now = chrono::Local::now();
+        self.now = now.time();
+        self.today = now.date_naive();
         self.cache.clear();
     }
 
     // -- Drawing helpers --------------------------------------------------
 
-    /// Draw the static clock face: background circle, tick marks, and numerals.
+    /// Draw the static clock face: background circle, tick marks, numerals, and optional date.
     fn draw_face(&self, frame: &mut Frame, centre: Point, radius: f32) {
         // Face background (semi-transparent white)
         let face_circle = Path::circle(centre, radius);
@@ -112,16 +122,46 @@ impl ClockFace {
                 ..canvas::Text::default()
             });
         }
+
+        // Optional day-of-month display (e.g. "17") at the 3 o'clock position
+        if self.show_date {
+            let date_x = centre.x + radius * 0.38;
+            let date_y = centre.y;
+            let date_size = radius * 0.12;
+
+            frame.fill_text(canvas::Text {
+                content: self.today.format("%d").to_string(),
+                position: Point::new(date_x, date_y),
+                size: date_size.into(),
+                color: self.theme.date_text_colour,
+                align_x: alignment::Horizontal::Center.into(),
+                align_y: alignment::Vertical::Center,
+                ..canvas::Text::default()
+            });
+        }
     }
 
-    /// Draw the hour, minute, and second hands plus the centre dot.
+    /// Draw the hour, minute, and second hands with drop shadows, plus the centre dot.
     fn draw_hands(&self, frame: &mut Frame, centre: Point, radius: f32) {
         let hour = self.now.hour() as f32;
         let minute = self.now.minute() as f32;
         let second = self.now.second() as f32;
+        let nano = self.now.nanosecond() as f32;
+
+        // Shadow offset in pixels
+        let shadow_offset = Point::new(1.5, 1.5);
+        let shadow_centre = Point::new(centre.x + shadow_offset.x, centre.y + shadow_offset.y);
 
         // Hour hand — short and thick
         let hour_angle = ((hour % 12.0) + minute / 60.0) * 2.0 * PI / 12.0 - PI / 2.0;
+        self.draw_hand(
+            frame,
+            shadow_centre,
+            hour_angle,
+            radius * 0.50,
+            4.5,
+            self.theme.shadow_colour,
+        );
         self.draw_hand(
             frame,
             centre,
@@ -135,6 +175,14 @@ impl ClockFace {
         let minute_angle = (minute + second / 60.0) * 2.0 * PI / 60.0 - PI / 2.0;
         self.draw_hand(
             frame,
+            shadow_centre,
+            minute_angle,
+            radius * 0.70,
+            3.0,
+            self.theme.shadow_colour,
+        );
+        self.draw_hand(
+            frame,
             centre,
             minute_angle,
             radius * 0.70,
@@ -142,8 +190,21 @@ impl ClockFace {
             self.theme.minute_hand_colour,
         );
 
-        // Second hand — thin, red accent
-        let second_angle = second * 2.0 * PI / 60.0 - PI / 2.0;
+        // Second hand — thin, red accent, optionally smooth
+        let second_frac = if self.smooth_seconds {
+            second + nano / 1_000_000_000.0
+        } else {
+            second
+        };
+        let second_angle = second_frac * 2.0 * PI / 60.0 - PI / 2.0;
+        self.draw_hand(
+            frame,
+            shadow_centre,
+            second_angle,
+            radius * 0.78,
+            1.5,
+            self.theme.shadow_colour,
+        );
         self.draw_hand(
             frame,
             centre,
@@ -153,7 +214,9 @@ impl ClockFace {
             self.theme.second_hand_colour,
         );
 
-        // Centre dot
+        // Centre dot (shadow then real)
+        let shadow_dot = Path::circle(shadow_centre, 4.0);
+        frame.fill(&shadow_dot, self.theme.shadow_colour);
         let dot = Path::circle(centre, 4.0);
         frame.fill(&dot, self.theme.centre_dot_colour);
     }
