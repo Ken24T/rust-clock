@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::theme::ThemeConfig;
+
 /// Persisted application settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -18,7 +20,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub position: Option<(i32, i32)>,
 
-    /// Name of the colour theme to use.
+    /// Name of a built-in theme preset (classic, dark, minimal, transparent).
+    /// Ignored when a `[theme]` section is present.
     #[serde(default = "default_theme")]
     pub theme: String,
 
@@ -29,6 +32,10 @@ pub struct AppConfig {
     /// Show the day-of-month on the clock face.
     #[serde(default = "default_true")]
     pub show_date: bool,
+
+    /// Full theme customisation. When present, overrides the `theme` name.
+    #[serde(default)]
+    pub theme_config: Option<ThemeConfig>,
 }
 
 // -- Serde defaults -------------------------------------------------------
@@ -55,6 +62,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             smooth_seconds: true,
             show_date: true,
+            theme_config: None,
         }
     }
 }
@@ -112,6 +120,14 @@ impl AppConfig {
         fs::write(&path, contents)?;
         Ok(())
     }
+
+    /// Resolve the effective theme: explicit `[theme_config]` overrides the
+    /// named preset in `theme`.
+    pub fn resolved_theme(&self) -> ThemeConfig {
+        self.theme_config
+            .clone()
+            .unwrap_or_else(|| ThemeConfig::by_name(&self.theme))
+    }
 }
 
 #[cfg(test)]
@@ -139,5 +155,27 @@ mod tests {
         assert!(config.smooth_seconds);
         assert!(config.show_date);
         assert!(config.position.is_none());
+        assert!(config.theme_config.is_none());
+    }
+
+    #[test]
+    fn resolved_theme_uses_name_when_no_config() {
+        let mut config = AppConfig::default();
+        config.theme = "dark".to_string();
+        let theme = config.resolved_theme();
+        // Dark theme has a dark face (low red channel)
+        assert!(theme.face_colour.0[0] < 0.2);
+    }
+
+    #[test]
+    fn resolved_theme_prefers_explicit_config() {
+        use crate::theme::Colour;
+        let mut config = AppConfig::default();
+        config.theme = "dark".to_string();
+        let mut custom = ThemeConfig::classic();
+        custom.face_colour = Colour::new(0.5, 0.5, 0.5, 1.0);
+        config.theme_config = Some(custom);
+        let theme = config.resolved_theme();
+        assert!((theme.face_colour.0[0] - 0.5).abs() < 0.01);
     }
 }
