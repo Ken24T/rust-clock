@@ -1,6 +1,6 @@
 # Rust Analog Clock Desklet — Implementation Plan
 
-## Current Version: 0.1.0
+## Current Version: 0.5.0
 
 **Target:** A highly customisable, moveable analog clock that sits on the Linux
 desktop as a transparent widget. Primary DE: Cinnamon (Linux Mint). Deployed as
@@ -137,17 +137,23 @@ a standalone Rust binary using iced — no JavaScript, no DE-specific plugin API
 
 ---
 
-## Phase 6 — Alarm & Chime
+## Phase 6 — Alarm & Chime (core complete) ✅
 
-> Branch: `feature/alarm-chime`
+> Branch: `feature/alarms-timers` | Tag: `v0.5.0`
 
+- [x] Alarm data model — `AlarmKind` (AtTime, Timer), `AlertAction` (Sound, Notification, Both)
+- [x] Alarm manager with persistence (`~/.config/rust-clock/alarms.toml`)
+- [x] Quick timer presets (1m / 5m / 10m / 15m / 30m / 1h) from overlay panel
+- [x] Audio playback via `rodio` (sine-wave beeps, custom sound file support)
+- [x] Desktop notification via `notify-rust` when alarm fires
+- [x] "Alarms & Timers" button in right-click context menu (with active count badge)
+- [x] Separate overlay panel for alarm management
 - [ ] Hourly chime — play a sound file at the top of each hour
 - [ ] Configurable chime sound (path to `.wav` / `.ogg`, or system bell)
 - [ ] Configurable chime hours (e.g. only 8:00–22:00)
-- [ ] Alarm times in config — one or more `[[alarm]]` sections
-- [ ] Desktop notification via `notify-rust` when alarm fires
 - [ ] Visual indicator on the clock face when an alarm is set
 - [ ] Snooze support (5-minute re-fire)
+- [ ] Recurring alarms
 
 ---
 
