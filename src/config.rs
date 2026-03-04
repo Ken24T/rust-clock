@@ -10,7 +10,7 @@ use std::path::PathBuf;
 /// Persisted application settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    /// Window width and height in logical pixels.
+    /// Window width and height in logical pixels (50–500).
     #[serde(default = "default_size")]
     pub size: u32,
 
@@ -21,6 +21,14 @@ pub struct AppConfig {
     /// Name of the colour theme to use.
     #[serde(default = "default_theme")]
     pub theme: String,
+
+    /// Enable smooth (60 fps) second hand sweep.
+    #[serde(default = "default_true")]
+    pub smooth_seconds: bool,
+
+    /// Show the day-of-month on the clock face.
+    #[serde(default = "default_true")]
+    pub show_date: bool,
 }
 
 // -- Serde defaults -------------------------------------------------------
@@ -33,6 +41,10 @@ fn default_theme() -> String {
     "classic".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 // -- Trait impls -----------------------------------------------------------
 
 impl Default for AppConfig {
@@ -41,6 +53,8 @@ impl Default for AppConfig {
             size: default_size(),
             position: None,
             theme: default_theme(),
+            smooth_seconds: true,
+            show_date: true,
         }
     }
 }
@@ -66,7 +80,11 @@ impl AppConfig {
 
         match fs::read_to_string(&path) {
             Ok(contents) => match toml::from_str(&contents) {
-                Ok(config) => config,
+                Ok(config) => {
+                    let mut config: AppConfig = config;
+                    config.size = config.size.clamp(50, 500);
+                    config
+                }
                 Err(e) => {
                     eprintln!("Failed to parse config at {}: {e}", path.display());
                     Self::default()
@@ -118,6 +136,8 @@ mod tests {
 
         assert_eq!(config.size, 250);
         assert_eq!(config.theme, "classic");
+        assert!(config.smooth_seconds);
+        assert!(config.show_date);
         assert!(config.position.is_none());
     }
 }

@@ -66,8 +66,10 @@ pub enum Message {
 
 impl ClockApp {
     fn new(config: AppConfig) -> Self {
+        let smooth_seconds = config.smooth_seconds;
+        let show_date = config.show_date;
         Self {
-            clock_face: ClockFace::new(ClockTheme::classic()),
+            clock_face: ClockFace::new(ClockTheme::classic(), smooth_seconds, show_date),
             _config: config,
         }
     }
@@ -86,6 +88,11 @@ impl ClockApp {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_secs(1)).map(|_| Message::Tick)
+        let interval = if self._config.smooth_seconds {
+            std::time::Duration::from_millis(16) // ~60 fps
+        } else {
+            std::time::Duration::from_secs(1)
+        };
+        iced::time::every(interval).map(|_| Message::Tick)
     }
 }
