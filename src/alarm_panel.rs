@@ -77,7 +77,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
     .spacing(3);
 
     // -- Create / edit form --
-    let form_section = build_form(form);
+    let form_elements = build_form_elements(form);
 
     // -- Active alarms list --
     let active: Vec<&Alarm> = manager.all().iter().filter(|a| a.enabled).collect();
@@ -125,21 +125,23 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
         .into(),
     );
 
-    let panel_col = column![
-        header_row,
+    let mut panel_items: Vec<Element<'_, Message>> = vec![
+        header_row.into(),
         separator,
-        presets,
+        presets.into(),
         separator_widget(),
-        form_section,
-        separator_widget(),
-        list_label,
-        scrollable(alarm_list).height(Length::Shrink),
-        separator_widget(),
-        row(bottom_row).spacing(6),
-    ]
-    .spacing(6)
-    .padding(12)
-    .width(Length::Fixed(260.0));
+    ];
+    panel_items.extend(form_elements);
+    panel_items.push(separator_widget());
+    panel_items.push(list_label.into());
+    panel_items.push(scrollable(alarm_list).height(Length::Shrink).into());
+    panel_items.push(separator_widget());
+    panel_items.push(row(bottom_row).spacing(6).into());
+
+    let panel_col = column(panel_items)
+        .spacing(6)
+        .padding(12)
+        .width(Length::Fixed(260.0));
 
     let panel = container(panel_col)
         .style(panel_style)
@@ -151,8 +153,9 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
 
 // -- Form builder ----------------------------------------------------------
 
-/// Build the create/edit form section.
-fn build_form(form: &AlarmForm) -> Element<'_, Message> {
+/// Build the create/edit form elements as a flat list (avoids nested columns
+/// which can prevent button click propagation in iced).
+fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
     let is_editing = form.editing.is_some();
     let form_heading = if is_editing {
         "Edit Alarm"
@@ -206,31 +209,6 @@ fn build_form(form: &AlarmForm) -> Element<'_, Message> {
         .padding(Padding::from([3, 6]))
         .style(form_input_style);
 
-    // -- Mode-specific fields --
-    let mode_fields: Element<'_, Message> = match form.mode {
-        AlarmFormMode::Timer => {
-            let minutes_input = text_input("Minutes", &form.timer_minutes)
-                .on_input(Message::AlarmFormMinutesChanged)
-                .size(11)
-                .padding(Padding::from([3, 6]))
-                .style(form_input_style);
-            column![minutes_input].spacing(3).into()
-        }
-        AlarmFormMode::Alarm => {
-            let time_input = text_input("Time (HH:MM)", &form.alarm_time)
-                .on_input(Message::AlarmFormTimeChanged)
-                .size(11)
-                .padding(Padding::from([3, 6]))
-                .style(form_input_style);
-            let date_input = text_input("Date (YYYY-MM-DD, blank=today)", &form.alarm_date)
-                .on_input(Message::AlarmFormDateChanged)
-                .size(11)
-                .padding(Padding::from([3, 6]))
-                .style(form_input_style);
-            column![time_input, date_input].spacing(3).into()
-        }
-    };
-
     // -- Submit / cancel buttons --
     let submit_label = if is_editing { "Save" } else { "Add" };
     let submit_btn = button(
@@ -254,16 +232,47 @@ fn build_form(form: &AlarmForm) -> Element<'_, Message> {
 
     let action_row: Vec<Element<'_, Message>> = vec![submit_btn.into(), cancel_btn.into()];
 
-    column![
-        heading,
-        mode_row,
-        label_input,
-        message_input,
-        mode_fields,
-        row(action_row).spacing(6),
-    ]
-    .spacing(4)
-    .into()
+    let mut elements: Vec<Element<'_, Message>> = vec![
+        heading.into(),
+        mode_row.into(),
+        label_input.into(),
+        message_input.into(),
+    ];
+
+    // Add mode-specific fields directly (flattened).
+    match form.mode {
+        AlarmFormMode::Timer => {
+            elements.push(
+                text_input("Minutes", &form.timer_minutes)
+                    .on_input(Message::AlarmFormMinutesChanged)
+                    .size(11)
+                    .padding(Padding::from([3, 6]))
+                    .style(form_input_style)
+                    .into(),
+            );
+        }
+        AlarmFormMode::Alarm => {
+            elements.push(
+                text_input("Time (HH:MM)", &form.alarm_time)
+                    .on_input(Message::AlarmFormTimeChanged)
+                    .size(11)
+                    .padding(Padding::from([3, 6]))
+                    .style(form_input_style)
+                    .into(),
+            );
+            elements.push(
+                text_input("Date (YYYY-MM-DD, blank=today)", &form.alarm_date)
+                    .on_input(Message::AlarmFormDateChanged)
+                    .size(11)
+                    .padding(Padding::from([3, 6]))
+                    .style(form_input_style)
+                    .into(),
+            );
+        }
+    }
+
+    elements.push(row(action_row).spacing(6).into());
+    elements
 }
 
 // -- Alarm row -------------------------------------------------------------
