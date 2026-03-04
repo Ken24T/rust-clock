@@ -1,0 +1,19 @@
+[package]
+name = "rust-clock"
+version = "0.1.0"
+edition = "2021"
+description = "A classic analog clock desktop widget (desklet) for Linux"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+iced = { version = "0.14", features = ["canvas", "tokio"] }
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+directories = "6"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
