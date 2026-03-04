@@ -233,19 +233,17 @@ fn build_form(form: &AlarmForm) -> Element<'_, Message> {
     .padding(Padding::from([3, 8]))
     .style(submit_button_style);
 
-    let mut action_row: Vec<Element<'_, Message>> = vec![submit_btn.into()];
+    let cancel_label = if is_editing { "Cancel" } else { "Clear" };
+    let cancel_btn = button(
+        text(cancel_label)
+            .size(11)
+            .align_x(alignment::Horizontal::Center),
+    )
+    .on_press(Message::AlarmFormCancel)
+    .padding(Padding::from([3, 8]))
+    .style(close_button_style);
 
-    if is_editing {
-        let cancel_btn = button(
-            text("Cancel")
-                .size(11)
-                .align_x(alignment::Horizontal::Center),
-        )
-        .on_press(Message::AlarmFormCancel)
-        .padding(Padding::from([3, 8]))
-        .style(close_button_style);
-        action_row.push(cancel_btn.into());
-    }
+    let action_row: Vec<Element<'_, Message>> = vec![submit_btn.into(), cancel_btn.into()];
 
     column![
         heading,
