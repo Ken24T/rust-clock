@@ -75,29 +75,29 @@ a standalone Rust binary using iced — no JavaScript, no DE-specific plugin API
 
 ---
 
-## Phase 3 — Interaction
+## Phase 3 — Interaction ✅
 
 > Branch: `feature/interaction`
 
-### Window dragging
+### Window dragging ✅
 
-- [ ] Click-and-drag moves the clock window
-- [ ] Position saved to config on mouse release
-- [ ] Load saved position on startup (`position = [x, y]`)
+- [x] Click-and-drag moves the clock window (OS-level drag via `window::drag`)
+- [x] Position saved to config on window move event
+- [x] Load saved position on startup (`position = [x, y]`)
 
-### Right-click context menu
+### Right-click context menu ✅
 
-- [ ] Custom iced overlay menu on right-click
-- [ ] Menu items:
-  - [ ] Theme picker (sub-menu with available themes)
-  - [ ] Size adjustment (small / medium / large / custom)
-  - [ ] Toggle date display
-  - [ ] Toggle smooth second hand
-  - [ ] Always on top toggle
-  - [ ] Quit
-- [ ] Menu dismissed on click-away or Escape
+- [x] Custom iced overlay menu on right-click (centred `stack` panel)
+- [x] Menu items:
+  - [x] Theme picker (Classic / Dark / Minimal / Transparent buttons)
+  - [x] Size adjustment (Small 150 / Medium 250 / Large 350)
+  - [x] Toggle date display (✓ indicator)
+  - [x] Toggle smooth second hand (✓ indicator)
+  - [x] Quit (red-tinted button)
+- [x] Menu dismissed on click-away (left-click starts drag) or Escape key
+- [ ] Always on top toggle (deferred to Phase 4 — desktop layer)
 
-### Settings dialog (stretch)
+### Settings dialog (stretch — deferred)
 
 - [ ] Separate iced window for advanced settings
 - [ ] Live preview of colour / theme changes
