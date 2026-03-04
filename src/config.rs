@@ -33,6 +33,10 @@ pub struct AppConfig {
     #[serde(default = "default_true")]
     pub show_date: bool,
 
+    /// Show the second hand on the clock face.
+    #[serde(default = "default_true")]
+    pub show_seconds: bool,
+
     /// Full theme customisation. When present, overrides the `theme` name.
     #[serde(default)]
     pub theme_config: Option<ThemeConfig>,
@@ -62,6 +66,7 @@ impl Default for AppConfig {
             theme: default_theme(),
             smooth_seconds: true,
             show_date: true,
+            show_seconds: true,
             theme_config: None,
         }
     }

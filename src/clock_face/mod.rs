@@ -20,12 +20,18 @@ pub struct ClockFace {
     today: chrono::NaiveDate,
     smooth_seconds: bool,
     show_date: bool,
+    show_seconds: bool,
     cache: Cache,
 }
 
 impl ClockFace {
     /// Create a new clock face with the given theme, initialised to the current time.
-    pub fn new(theme: ThemeConfig, smooth_seconds: bool, show_date: bool) -> Self {
+    pub fn new(
+        theme: ThemeConfig,
+        smooth_seconds: bool,
+        show_date: bool,
+        show_seconds: bool,
+    ) -> Self {
         let now = chrono::Local::now();
         Self {
             theme,
@@ -33,6 +39,7 @@ impl ClockFace {
             today: now.date_naive(),
             smooth_seconds,
             show_date,
+            show_seconds,
             cache: Cache::new(),
         }
     }

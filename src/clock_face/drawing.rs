@@ -217,28 +217,30 @@ impl ClockFace {
         );
 
         // Second hand — thin, accent colour, optionally smooth
-        let second_frac = if self.smooth_seconds {
-            second + nano / 1_000_000_000.0
-        } else {
-            second
-        };
-        let second_angle = second_frac * 2.0 * PI / 60.0 - PI / 2.0;
-        self.draw_hand(
-            frame,
-            shadow_centre,
-            second_angle,
-            radius * 0.78,
-            second_width,
-            shadow_colour,
-        );
-        self.draw_hand(
-            frame,
-            centre,
-            second_angle,
-            radius * 0.78,
-            second_width,
-            self.theme.second_hand_colour.into(),
-        );
+        if self.show_seconds {
+            let second_frac = if self.smooth_seconds {
+                second + nano / 1_000_000_000.0
+            } else {
+                second
+            };
+            let second_angle = second_frac * 2.0 * PI / 60.0 - PI / 2.0;
+            self.draw_hand(
+                frame,
+                shadow_centre,
+                second_angle,
+                radius * 0.78,
+                second_width,
+                shadow_colour,
+            );
+            self.draw_hand(
+                frame,
+                centre,
+                second_angle,
+                radius * 0.78,
+                second_width,
+                self.theme.second_hand_colour.into(),
+            );
+        }
 
         // Centre dot (shadow then real)
         let shadow_dot = Path::circle(shadow_centre, dot_radius);

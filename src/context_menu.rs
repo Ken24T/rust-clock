@@ -93,6 +93,11 @@ impl<'a> ContextMenu<'a> {
             self.config.smooth_seconds,
             Message::ToggleSmoothSeconds,
         );
+        let seconds_toggle = menu_toggle(
+            "Show Seconds",
+            self.config.show_seconds,
+            Message::ToggleSeconds,
+        );
 
         // -- Quit --
         let alarm_count = self.alarm_manager.active_count();
@@ -124,6 +129,7 @@ impl<'a> ContextMenu<'a> {
             size_row,
             date_toggle,
             smooth_toggle,
+            seconds_toggle,
             separator_widget(),
             alarm_btn,
             separator_widget(),

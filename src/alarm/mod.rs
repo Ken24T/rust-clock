@@ -119,6 +119,9 @@ pub struct Alarm {
     /// How to alert the user.
     #[serde(default)]
     pub alert: AlertAction,
+    /// Optional message shown in the notification when the alarm fires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     /// Whether this alarm is active.
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -139,9 +142,17 @@ impl Alarm {
             label: label.into(),
             kind,
             alert,
+            message: None,
             enabled: true,
             fired: false,
         }
+    }
+
+    /// Set an optional notification message.
+    #[allow(dead_code)]
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
     }
 
     /// Returns `true` if this alarm should fire right now.

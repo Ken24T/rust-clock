@@ -96,6 +96,8 @@ pub enum Message {
     ToggleDate,
     /// Toggle the smooth second hand.
     ToggleSmoothSeconds,
+    /// Toggle the second hand visibility.
+    ToggleSeconds,
     /// Show the alarms & timers panel.
     ShowAlarmPanel,
     /// Dismiss the alarm panel.
@@ -112,12 +114,15 @@ pub enum Message {
 
 impl ClockApp {
     fn new(config: AppConfig) -> Self {
-        let smooth_seconds = config.smooth_seconds;
-        let show_date = config.show_date;
         let theme = config.resolved_theme();
         let alarm_manager = AlarmManager::load();
         Self {
-            clock_face: ClockFace::new(theme, smooth_seconds, show_date),
+            clock_face: ClockFace::new(
+                theme,
+                config.smooth_seconds,
+                config.show_date,
+                config.show_seconds,
+            ),
             config,
             alarm_manager,
             show_menu: false,
@@ -128,7 +133,12 @@ impl ClockApp {
     /// Apply the current config to the live clock face.
     fn apply_theme(&mut self) {
         let theme = self.config.resolved_theme();
-        self.clock_face = ClockFace::new(theme, self.config.smooth_seconds, self.config.show_date);
+        self.clock_face = ClockFace::new(
+            theme,
+            self.config.smooth_seconds,
+            self.config.show_date,
+            self.config.show_seconds,
+        );
     }
 
     /// Persist config to disk, logging any errors.
@@ -225,6 +235,12 @@ impl ClockApp {
             }
             Message::ToggleSmoothSeconds => {
                 self.config.smooth_seconds = !self.config.smooth_seconds;
+                self.apply_theme();
+                self.save_config();
+                Task::none()
+            }
+            Message::ToggleSeconds => {
+                self.config.show_seconds = !self.config.show_seconds;
                 self.apply_theme();
                 self.save_config();
                 Task::none()
@@ -333,12 +349,16 @@ fn fire_alarm(alarm: &alarm::Alarm) {
 /// Send a desktop notification for a fired alarm.
 fn send_notification(alarm: &alarm::Alarm) {
     let summary = format!("⏰ {}", alarm.label);
-    let body = match &alarm.kind {
-        alarm::AlarmKind::Timer { duration_secs, .. } => {
-            format!("{} timer finished", format_timer_label(*duration_secs))
-        }
-        alarm::AlarmKind::AtTime { target } => {
-            format!("Alarm at {}", target.format("%H:%M"))
+    let body = if let Some(msg) = &alarm.message {
+        msg.clone()
+    } else {
+        match &alarm.kind {
+            alarm::AlarmKind::Timer { duration_secs, .. } => {
+                format!("{} timer finished", format_timer_label(*duration_secs))
+            }
+            alarm::AlarmKind::AtTime { target } => {
+                format!("Alarm at {}", target.format("%H:%M"))
+            }
         }
     };
     if let Err(e) = notify_rust::Notification::new()
