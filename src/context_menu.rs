@@ -7,6 +7,7 @@ use iced::alignment;
 use iced::widget::{button, center, column, container, row, text};
 use iced::{Color, Element, Fill, Length, Padding};
 
+use crate::alarm::AlarmManager;
 use crate::config::AppConfig;
 use crate::Message;
 
@@ -20,11 +21,15 @@ const SIZES: &[(u32, &str)] = &[(150, "Small"), (250, "Medium"), (350, "Large")]
 /// A floating context menu shown on right-click.
 pub struct ContextMenu<'a> {
     config: &'a AppConfig,
+    alarm_manager: &'a AlarmManager,
 }
 
 impl<'a> ContextMenu<'a> {
-    pub fn widget(config: &'a AppConfig) -> Element<'a, Message> {
-        let menu = Self { config };
+    pub fn widget(config: &'a AppConfig, alarm_manager: &'a AlarmManager) -> Element<'a, Message> {
+        let menu = Self {
+            config,
+            alarm_manager,
+        };
         menu.build()
     }
 
@@ -90,6 +95,22 @@ impl<'a> ContextMenu<'a> {
         );
 
         // -- Quit --
+        let alarm_count = self.alarm_manager.active_count();
+        let alarm_label = if alarm_count > 0 {
+            format!("Alarms & Timers ({alarm_count})")
+        } else {
+            "Alarms & Timers".to_string()
+        };
+        let alarm_btn = button(
+            text(alarm_label)
+                .size(12)
+                .align_x(alignment::Horizontal::Center),
+        )
+        .on_press(Message::ShowAlarmPanel)
+        .padding(Padding::from([3, 8]))
+        .width(Fill)
+        .style(menu_button_style);
+
         let quit_btn = button(text("Quit").size(12).align_x(alignment::Horizontal::Center))
             .on_press(Message::Quit)
             .padding(Padding::from([3, 8]))
@@ -103,6 +124,8 @@ impl<'a> ContextMenu<'a> {
             size_row,
             date_toggle,
             smooth_toggle,
+            separator_widget(),
+            alarm_btn,
             separator_widget(),
             quit_btn,
         ]

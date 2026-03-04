@@ -1,6 +1,6 @@
 [package]
 name = "rust-clock"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "A classic analog clock desktop widget (desklet) for Linux"
 license = "MIT"
@@ -8,10 +8,13 @@ readme = "README.md"
 
 [dependencies]
 iced = { version = "0.14", features = ["canvas", "tokio"] }
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 directories = "6"
+rodio = "0.20"
+notify-rust = "4"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [profile.release]
 opt-level = 3
