@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Rust Clock
+Comment=A classic analog clock desktop widget
+Exec=rust-clock
+Icon=clock
+Type=Application
+Categories=Utility;Clock;
+Keywords=clock;time;analog;widget;desklet;timer;alarm;
+StartupNotify=false
+Terminal=false
