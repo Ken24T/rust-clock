@@ -12,7 +12,6 @@ use iced::{window, Color, Element, Fill, Size, Subscription, Task};
 
 use clock_face::ClockFace;
 use config::AppConfig;
-use theme::ClockTheme;
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();
@@ -68,8 +67,9 @@ impl ClockApp {
     fn new(config: AppConfig) -> Self {
         let smooth_seconds = config.smooth_seconds;
         let show_date = config.show_date;
+        let theme = config.resolved_theme();
         Self {
-            clock_face: ClockFace::new(ClockTheme::classic(), smooth_seconds, show_date),
+            clock_face: ClockFace::new(theme, smooth_seconds, show_date),
             _config: config,
         }
     }
