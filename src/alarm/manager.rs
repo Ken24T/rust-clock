@@ -46,6 +46,7 @@ impl AlarmManager {
                 Ok(file) => Self { alarms: file.alarm },
                 Err(e) => {
                     eprintln!("Failed to parse alarms at {}: {e}", path.display());
+                    Self::backup_corrupted_file(&path);
                     Self::default()
                 }
             },
@@ -53,6 +54,19 @@ impl AlarmManager {
                 eprintln!("Failed to read alarms at {}: {e}", path.display());
                 Self::default()
             }
+        }
+    }
+
+    /// Attempt to preserve a corrupted alarms file for manual recovery.
+    fn backup_corrupted_file(path: &PathBuf) {
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let backup = path.with_file_name(format!("alarms.corrupt-{stamp}.toml"));
+        match fs::copy(path, &backup) {
+            Ok(_) => eprintln!("Backed up corrupted alarms file to {}", backup.display()),
+            Err(e) => eprintln!(
+                "Failed to backup corrupted alarms file {}: {e}",
+                path.display()
+            ),
         }
     }
 

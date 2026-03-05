@@ -195,7 +195,7 @@ impl ClockApp {
     /// Parse the alarm form and create or update an alarm.
     fn submit_alarm_form(&mut self) {
         use alarm::{Alarm, AlarmKind, AlertAction};
-        use chrono::{Local, NaiveDate, NaiveTime};
+        use chrono::{Local, LocalResult, NaiveDate, NaiveTime};
 
         let form = &self.alarm_form;
         let label = if form.label.trim().is_empty() {
@@ -222,7 +222,14 @@ impl ClockApp {
                         return;
                     }
                 };
-                AlarmKind::from_now(minutes * 60)
+                let duration_secs = match minutes.checked_mul(60) {
+                    Some(secs) => secs,
+                    None => {
+                        eprintln!("Timer minutes are too large: {}", form.timer_minutes);
+                        return;
+                    }
+                };
+                AlarmKind::from_now(duration_secs)
             }
             AlarmFormMode::Alarm => {
                 let time = match NaiveTime::parse_from_str(form.alarm_time.trim(), "%H:%M") {
@@ -244,10 +251,23 @@ impl ClockApp {
                     }
                 };
                 let naive_dt = date.and_time(time);
-                let target = naive_dt
-                    .and_local_timezone(Local)
-                    .single()
-                    .unwrap_or_else(Local::now);
+                let target = match naive_dt.and_local_timezone(Local) {
+                    LocalResult::Single(target) => target,
+                    LocalResult::Ambiguous(early, late) => {
+                        eprintln!(
+                            "Ambiguous local alarm time {} (DST transition), using earlier instant over {}",
+                            early, late
+                        );
+                        early
+                    }
+                    LocalResult::None => {
+                        eprintln!(
+                            "Invalid local alarm time '{}' on '{}' (DST transition gap)",
+                            form.alarm_time, form.alarm_date
+                        );
+                        return;
+                    }
+                };
                 AlarmKind::at_time(target)
             }
         };
@@ -373,6 +393,9 @@ impl ClockApp {
             Message::EditAlarm(id) => {
                 if let Some(alarm) = self.alarm_manager.get(id) {
                     self.alarm_form.populate_from(alarm);
+                    self.show_menu = false;
+                    self.show_alarm_panel = true;
+                    return self.expand_for_overlay();
                 }
                 Task::none()
             }
@@ -514,7 +537,15 @@ fn send_notification(alarm: &alarm::Alarm) {
         .arg(&body)
         .spawn()
     {
-        Ok(_) => {}
+        Ok(mut child) => {
+            std::thread::spawn(move || match child.wait() {
+                Ok(status) if !status.success() => {
+                    eprintln!("notify-send exited with status: {status}");
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("Failed to wait for notify-send: {e}"),
+            });
+        }
         Err(e) => eprintln!("Failed to send notification: {e}"),
     }
 }
