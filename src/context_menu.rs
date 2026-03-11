@@ -38,6 +38,15 @@ impl<'a> ContextMenu<'a> {
             .size(14)
             .color(Color::from_rgb(0.9, 0.9, 0.9));
 
+        let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
+            .on_press(Message::DismissMenu)
+            .padding(Padding::from([1, 5]))
+            .style(menu_button_style);
+
+        let header_row = row![heading, close_btn]
+            .spacing(6)
+            .align_y(alignment::Vertical::Center);
+
         let separator = container(text("").size(1))
             .width(Fill)
             .height(1)
@@ -122,8 +131,18 @@ impl<'a> ContextMenu<'a> {
             .width(Fill)
             .style(quit_button_style);
 
+        let close_menu_btn = button(
+            text("Close")
+                .size(12)
+                .align_x(alignment::Horizontal::Center),
+        )
+        .on_press(Message::DismissMenu)
+        .padding(Padding::from([3, 8]))
+        .width(Fill)
+        .style(menu_button_style);
+
         let menu_col = column![
-            heading,
+            header_row,
             separator,
             theme_row,
             size_row,
@@ -133,6 +152,7 @@ impl<'a> ContextMenu<'a> {
             separator_widget(),
             alarm_btn,
             separator_widget(),
+            close_menu_btn,
             quit_btn,
         ]
         .spacing(6)
