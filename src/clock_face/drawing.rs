@@ -75,11 +75,23 @@ impl ClockFace {
         // Hour indicators (style-dependent)
         self.draw_numerals(frame, centre, radius);
 
-        // Optional day-of-month display (e.g. "17") at the 3 o'clock position
+        // Optional weekday and day-of-month display at the 3 o'clock position
         if self.show_date {
             let date_x = centre.x + radius * 0.38;
-            let date_y = centre.y;
+            let weekday_y = centre.y - radius * 0.055;
+            let date_y = centre.y + radius * 0.055;
+            let weekday_size = radius * 0.08;
             let date_size = radius * 0.12;
+
+            frame.fill_text(canvas::Text {
+                content: self.today.format("%a").to_string().to_uppercase(),
+                position: Point::new(date_x, weekday_y),
+                size: weekday_size.into(),
+                color: self.theme.date_text_colour.into(),
+                align_x: alignment::Horizontal::Center.into(),
+                align_y: alignment::Vertical::Center,
+                ..canvas::Text::default()
+            });
 
             frame.fill_text(canvas::Text {
                 content: self.today.format("%d").to_string(),

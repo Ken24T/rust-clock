@@ -9,6 +9,7 @@ mod clock_face;
 mod config;
 mod context_menu;
 mod theme;
+mod tray;
 
 use iced::keyboard;
 use iced::widget::{canvas, center, stack};
@@ -24,6 +25,7 @@ use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertActio
 use clock_face::ClockFace;
 use config::AppConfig;
 use context_menu::ContextMenu;
+use tray::{start_system_tray, SystemTrayHandle, TrayCommand};
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();
@@ -74,6 +76,8 @@ struct ClockApp {
     config: AppConfig,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
+    tray_handle: Option<SystemTrayHandle>,
+    tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
     show_menu: bool,
     show_alarm_panel: bool,
 }
@@ -83,6 +87,10 @@ struct ClockApp {
 pub enum Message {
     /// Fired periodically to update the clock hands.
     Tick,
+    /// Poll pending tray actions.
+    PollTrayCommands,
+    /// Window has opened and is ready for platform-specific configuration.
+    WindowOpened(window::Id),
     /// Left-click: initiate OS-level window drag.
     StartDrag,
     /// Window moved to a new position — save it.
@@ -137,6 +145,11 @@ impl ClockApp {
     fn new(config: AppConfig) -> Self {
         let theme = config.resolved_theme();
         let alarm_manager = AlarmManager::load();
+        let (tray_handle, tray_receiver) = match start_system_tray() {
+            Some((tray_handle, tray_receiver)) => (Some(tray_handle), Some(tray_receiver)),
+            None => (None, None),
+        };
+
         Self {
             clock_face: ClockFace::new(
                 theme,
@@ -147,6 +160,8 @@ impl ClockApp {
             config,
             alarm_manager,
             alarm_form: AlarmForm::default(),
+            tray_handle,
+            tray_receiver,
             show_menu: false,
             show_alarm_panel: false,
         }
@@ -292,6 +307,57 @@ impl ClockApp {
         self.alarm_form.clear();
     }
 
+    fn show_alarm_panel_from_tray(&mut self) -> Task<Message> {
+        self.show_menu = false;
+        self.show_alarm_panel = true;
+
+        Task::batch([focus_clock_window(), self.expand_for_overlay()])
+    }
+
+    fn poll_tray_commands(&mut self) -> Task<Message> {
+        let mut pending_commands = Vec::new();
+        let mut tasks = Vec::new();
+        let mut should_quit = false;
+
+        if let Some(receiver) = &self.tray_receiver {
+            loop {
+                match receiver.try_recv() {
+                    Ok(command) => pending_commands.push(command),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        self.tray_receiver = None;
+                        break;
+                    }
+                }
+            }
+        }
+
+        for command in pending_commands {
+            match command {
+                TrayCommand::FocusClock => tasks.push(focus_clock_window()),
+                TrayCommand::ShowAlarmPanel => {
+                    tasks.push(self.show_alarm_panel_from_tray());
+                }
+                TrayCommand::AddQuickTimer(secs) => {
+                    let label = format_timer_label(secs);
+                    self.alarm_manager.add_timer(label, secs);
+                }
+                TrayCommand::Quit => {
+                    should_quit = true;
+                    break;
+                }
+            }
+        }
+
+        if should_quit {
+            Task::done(Message::Quit)
+        } else if tasks.is_empty() {
+            Task::none()
+        } else {
+            Task::batch(tasks)
+        }
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Tick => {
@@ -303,6 +369,8 @@ impl ClockApp {
                 }
                 Task::none()
             }
+            Message::PollTrayCommands => self.poll_tray_commands(),
+            Message::WindowOpened(id) => apply_startup_window_hints(id),
             Message::StartDrag => {
                 let was_overlay = self.show_menu || self.show_alarm_panel;
                 self.show_menu = false;
@@ -433,6 +501,9 @@ impl ClockApp {
             }
             Message::Quit => {
                 self.save_config();
+                if let Some(tray_handle) = self.tray_handle.take() {
+                    tray_handle.shutdown();
+                }
                 window::oldest().and_then(window::close)
             }
         }
@@ -474,12 +545,16 @@ impl ClockApp {
             std::time::Duration::from_secs(1)
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
+        let tray_events = iced::time::every(std::time::Duration::from_millis(150))
+            .map(|_| Message::PollTrayCommands);
 
         // Listen for window move events to save position after dragging.
         let window_events = window::events().map(|(_, event)| match event {
             window::Event::Moved(point) => Message::WindowMoved(point),
             _ => Message::Tick, // Ignore other window events
         });
+
+        let window_open_events = window::open_events().map(Message::WindowOpened);
 
         // Listen for Escape key to dismiss the context menu.
         let keyboard_events = keyboard::listen().map(|event| match event {
@@ -490,11 +565,107 @@ impl ClockApp {
             _ => Message::Tick,
         });
 
-        Subscription::batch([tick, window_events, keyboard_events])
+        Subscription::batch([
+            tick,
+            tray_events,
+            window_events,
+            window_open_events,
+            keyboard_events,
+        ])
     }
 }
 
 // -- Helper functions ------------------------------------------------------
+
+fn focus_clock_window() -> Task<Message> {
+    window::oldest()
+        .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
+}
+
+fn apply_startup_window_hints(id: window::Id) -> Task<Message> {
+    #[cfg(target_os = "linux")]
+    {
+        window::run(id, |native_window| {
+            if let Err(error) = apply_linux_skip_taskbar_hints(native_window) {
+                eprintln!("Failed to apply Linux window hints: {error}");
+            }
+        })
+        .discard()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = id;
+        Task::none()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn apply_linux_skip_taskbar_hints(
+    native_window: &dyn window::Window,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use iced::window::raw_window_handle::RawWindowHandle;
+
+    let raw_window = native_window.window_handle()?.as_raw();
+    let window_id = match raw_window {
+        RawWindowHandle::Xlib(handle) => u32::try_from(handle.window)
+            .map_err(|_| format!("Xlib window id out of range: {}", handle.window))?,
+        RawWindowHandle::Xcb(handle) => handle.window.get(),
+        RawWindowHandle::Wayland(_) => return Ok(()),
+        _ => return Ok(()),
+    };
+
+    apply_x11_skip_taskbar_hints(window_id)
+}
+
+#[cfg(target_os = "linux")]
+fn apply_x11_skip_taskbar_hints(window_id: u32) -> Result<(), Box<dyn std::error::Error>> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{
+        AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, PropMode,
+    };
+    use x11rb::rust_connection::RustConnection;
+    use x11rb::wrapper::ConnectionExt as _;
+
+    let (conn, screen_num) = RustConnection::connect(None)?;
+    let root = conn.setup().roots[screen_num].root;
+
+    let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
+    let skip_taskbar = intern_atom(&conn, b"_NET_WM_STATE_SKIP_TASKBAR")?;
+    let skip_pager = intern_atom(&conn, b"_NET_WM_STATE_SKIP_PAGER")?;
+
+    conn.change_property32(
+        PropMode::REPLACE,
+        window_id,
+        net_wm_state,
+        AtomEnum::ATOM,
+        &[skip_taskbar, skip_pager],
+    )?;
+
+    for atom in [skip_taskbar, skip_pager] {
+        let event = ClientMessageEvent::new(32, window_id, net_wm_state, [1, atom, 0, 0, 0]);
+
+        conn.send_event(
+            false,
+            root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            event,
+        )?;
+    }
+
+    conn.flush()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn intern_atom(
+    conn: &x11rb::rust_connection::RustConnection,
+    name: &[u8],
+) -> Result<u32, Box<dyn std::error::Error>> {
+    use x11rb::protocol::xproto::ConnectionExt as _;
+
+    Ok(conn.intern_atom(false, name)?.reply()?.atom)
+}
 
 /// Fire an alarm: play sound and/or send a notification based on alert action.
 fn fire_alarm(alarm: &alarm::Alarm) {
