@@ -328,6 +328,45 @@ It delivered:
 - Windows notifications capability enabled in the platform capability model
 - an explicit path for future packaged builds to supply a real Windows AppUserModelID
 
+## Phase 5 — Windows Tray Baseline
+
+### Intent
+
+Restore basic tray controls on Windows without disturbing the Linux tray backend or pushing tray state into shared app logic.
+
+### Slices
+
+1. Add Windows-only tray and Win32 message-loop dependencies
+2. Implement a Windows tray backend on its own message-loop thread
+3. Expose the tray through the existing platform service and enable the Windows tray capability
+4. Document the current Windows tray scope and remaining limitations
+
+### Slice 1 Status
+
+Completed by adding Windows-target-only tray and Win32 support dependencies instead of introducing new shared GUI dependencies for all platforms.
+
+### Slice 2 Status
+
+Completed by implementing a Windows tray backend that owns its menu and tray icon on a dedicated Win32 message-loop thread and forwards only `TrayCommand` values back to shared app logic.
+
+### Slice 3 Status
+
+Completed by wiring the Windows tray backend into the existing platform service and enabling the Windows tray capability.
+
+### Slice 4 Status
+
+Completed by updating the platform support documentation to describe the new Windows tray baseline and its remaining limitations.
+
+## Phase 5 Summary
+
+Phase 5 is complete.
+
+It delivered:
+
+- Windows tray support behind the existing tray/platform seams
+- a dedicated Win32 tray thread that keeps tray state out of shared app logic
+- Windows tray capability enabled in the platform capability model
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.

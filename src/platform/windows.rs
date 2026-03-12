@@ -1,13 +1,13 @@
 use iced::{window, Task};
 use winrt_notification::{Duration, Toast};
 
-use crate::tray::{SystemTrayHandle, TrayCommand};
+use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
 use super::PlatformCapabilities;
 
 pub fn capabilities() -> PlatformCapabilities {
     PlatformCapabilities {
-        system_tray: false,
+        system_tray: true,
         notifications: true,
         desktop_window_hints: false,
         sticky_workspace: false,
@@ -28,7 +28,7 @@ pub fn send_notification(summary: &str, body: &str) {
 }
 
 pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receiver<TrayCommand>)> {
-    None
+    tray::start_system_tray()
 }
 
 pub fn configure_main_window_settings(settings: &mut window::Settings) {
