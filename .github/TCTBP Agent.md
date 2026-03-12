@@ -24,6 +24,7 @@ A Project Profile defines:
 - How to run **build/compile** (if applicable)
 - Where/how to **bump version**
 - Tagging policy
+- Documentation impact rules and which docs must be reviewed for different change types
 
 ---
 
@@ -112,23 +113,31 @@ Behaviour (safe, deterministic):
   - Proceed only if tests pass at 100%.
   - Stop immediately on failure and report.
 
-4. **Commit everything**
+4. **Documentation impact**
+  - Classify the change set as one or more of: `user-visible-feature`, `ui-or-interaction`, `config-or-settings`, `packaging-or-metadata`, `roadmap-or-status`, `internal-only`.
+  - Review the documentation files required by the Project Profile / `TCTBP.json` rules.
+  - Before committing, report either:
+    - `Docs updated`, listing changed files, or
+    - `No docs impact`, with a short reason.
+  - If required documentation is clearly stale relative to the change set, stop and fix it before continuing.
+
+5. **Commit everything**
   - If staged changes exist, commit them automatically with a clear message.
 
-5. **Ship if needed**
+6. **Ship if needed**
   - If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
   - If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
   - Otherwise skip bump/tag and continue.
 
-6. **Merge to local main**
+7. **Merge to local main**
   - Checkout `main` and merge the current branch using a non-destructive merge (no rebase).
   - Stop on conflicts.
 
-7. **Push**
+8. **Push**
   - Push `main` to origin.
   - Push tags (if a SHIP occurred or tags exist).
 
-8. **Summary**
+9. **Summary**
   - Summarise: branch, commits created, tests run, merge result, and pushes performed.
 
 Approval rules:
@@ -140,7 +149,7 @@ Approval rules:
 
 ## SHIP / TCTBP Workflow
 
-**SHIP = Preflight → Test → Problems → Bump → Commit → Tag → Push**
+**SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push**
 
 ### 1. Preflight
 
@@ -162,7 +171,17 @@ Ensure lint, build, and test diagnostics are clean (zero warnings if enforced).
 
 ---
 
-### 4. Bump Version
+### 4. Docs Impact
+
+- Classify the change set using the repo documentation rules.
+- Determine which documentation files must be reviewed.
+- Update those docs when behaviour, configuration, packaging, or project status has changed.
+- If no docs changes are needed, explicitly record `No docs impact` with a short reason before continuing.
+- SHIP must not proceed while required documentation is stale.
+
+---
+
+### 5. Bump Version
 
 **Versioning rules:**
 
@@ -174,7 +193,7 @@ The bump must be applied **before committing**, so the resulting commit contains
 
 ---
 
-### 5. Commit
+### 6. Commit
 
 - Stage relevant changes
 - Propose a conventional commit message
@@ -183,7 +202,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 
 ---
 
-### 6. Tag
+### 7. Tag
 
 - Tag format: `X.Y.Z` (example: `0.5.27`)
 - One tag per shipped commit
@@ -191,7 +210,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 
 ---
 
-### 7. Push (Approval Required)
+### 8. Push (Approval Required)
 
 - Push current branch only
 - Never push to protected branches
@@ -231,6 +250,22 @@ On any failure:
 
 ---
 
+## Documentation Impact Policy
+
+The repo may define documentation rules in `TCTBP.json`. When present, those rules are authoritative for deciding which docs must be reviewed.
+
+Minimum policy expected for feature work:
+
+- **User-visible feature** changes must review user-facing docs.
+- **UI, interaction, config, or settings** changes must review the user guide and any feature-summary docs.
+- **Roadmap/status** changes must review the implementation plan.
+- **Packaging/metadata** changes must review package metadata and any install/runtime documentation.
+- **Internal-only** changes may skip docs updates, but only with an explicit reason.
+
+The agent should prefer a small, accurate docs update over a broad rewrite.
+
+---
+
 ## Appendix: `TCTBP.json` (Indicative Template)
 
 ```json
@@ -245,8 +280,39 @@ On any failure:
     }
   },
   "workflow": {
-    "order": ["preflight", "test", "problems", "bump", "commit", "tag", "push"],
+    "order": ["preflight", "test", "problems", "docsImpact", "bump", "commit", "tag", "push"],
     "requireApproval": ["push"]
+  },
+  "documentation": {
+    "requireImpactAssessment": true,
+    "blockShipIfUnassessed": true,
+    "allowNoDocChangeWithReason": true,
+    "rules": [
+      {
+        "changeType": "user-visible-feature",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "ui-or-interaction",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "config-or-settings",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "roadmap-or-status",
+        "review": ["PLAN.md"]
+      },
+      {
+        "changeType": "packaging-or-metadata",
+        "review": ["README.md", "Cargo.toml", "assets/rust-clock.desktop"]
+      },
+      {
+        "changeType": "internal-only",
+        "review": []
+      }
+    ]
   },
   "versioning": {
     "scheme": "semver",

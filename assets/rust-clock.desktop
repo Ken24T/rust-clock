@@ -1,11 +1,11 @@
 [Desktop Entry]
 Name=Rust Clock
-Comment=A classic analog clock desktop widget
+Comment=Analog clock desklet with alarms, timers, and tray controls
 Exec=rust-clock
 StartupWMClass=rust-clock
 Icon=clock
 Type=Application
 Categories=Utility;Clock;
-Keywords=clock;time;analog;widget;desklet;timer;alarm;
+Keywords=clock;time;analog;widget;desklet;timer;alarm;tray;desktop;
 StartupNotify=false
 Terminal=false

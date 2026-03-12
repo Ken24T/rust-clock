@@ -1,3 +1,4 @@
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayCommand {
     FocusClock,
@@ -6,6 +7,7 @@ pub enum TrayCommand {
     Quit,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const QUICK_TIMER_PRESETS: &[(u64, &str)] = &[
     (60, "1 min"),
     (300, "5 min"),
