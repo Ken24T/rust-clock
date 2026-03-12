@@ -201,7 +201,7 @@ impl ClockApp {
             (None, None)
         };
 
-        Self {
+        let mut app = Self {
             clock_face: ClockFace::new(
                 theme,
                 config.smooth_seconds,
@@ -217,7 +217,9 @@ impl ClockApp {
             control_window_content: None,
             tray_handle,
             tray_receiver,
-        }
+        };
+        app.sync_clock_face_active_items();
+        app
     }
 
     /// Apply the current config to the live clock face.
@@ -229,6 +231,12 @@ impl ClockApp {
             self.config.show_date,
             self.config.show_seconds,
         );
+        self.sync_clock_face_active_items();
+    }
+
+    fn sync_clock_face_active_items(&mut self) {
+        self.clock_face
+            .set_active_items(self.alarm_manager.face_active_items());
     }
 
     /// Persist config to disk, logging any errors.
@@ -368,6 +376,7 @@ impl ClockApp {
         }
 
         self.alarm_form.clear();
+        self.sync_clock_face_active_items();
     }
 
     fn show_alarm_panel_from_tray(&mut self) -> Task<Message> {
@@ -401,6 +410,7 @@ impl ClockApp {
                 TrayCommand::AddQuickTimer(secs) => {
                     let label = format_timer_label(secs);
                     self.alarm_manager.add_timer(label, secs);
+                    self.sync_clock_face_active_items();
                 }
                 TrayCommand::Quit => {
                     should_quit = true;
@@ -436,6 +446,7 @@ impl ClockApp {
                 self.clock_face.update_time();
                 // Check alarms on each tick.
                 let fired = self.alarm_manager.check_and_fire();
+                self.sync_clock_face_active_items();
                 for alarm in fired {
                     fire_alarm(&alarm);
                 }
@@ -512,14 +523,17 @@ impl ClockApp {
             Message::AddQuickTimer(secs) => {
                 let label = format_timer_label(secs);
                 self.alarm_manager.add_timer(label, secs);
+                self.sync_clock_face_active_items();
                 Task::none()
             }
             Message::RemoveAlarm(id) => {
                 self.alarm_manager.remove(id);
+                self.sync_clock_face_active_items();
                 Task::none()
             }
             Message::ClearFiredAlarms => {
                 self.alarm_manager.clear_fired();
+                self.sync_clock_face_active_items();
                 Task::none()
             }
             Message::EditAlarm(id) => {

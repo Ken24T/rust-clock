@@ -10,6 +10,7 @@ use iced::mouse;
 use iced::widget::canvas::{self, Action, Cache, Event, Geometry};
 use iced::{Point, Rectangle, Renderer, Theme};
 
+use crate::alarm::FaceActiveItem;
 use crate::theme::ThemeConfig;
 use crate::Message;
 
@@ -21,6 +22,7 @@ pub struct ClockFace {
     smooth_seconds: bool,
     show_date: bool,
     show_seconds: bool,
+    active_items: Vec<FaceActiveItem>,
     cache: Cache,
 }
 
@@ -40,6 +42,7 @@ impl ClockFace {
             smooth_seconds,
             show_date,
             show_seconds,
+            active_items: Vec::new(),
             cache: Cache::new(),
         }
     }
@@ -50,6 +53,18 @@ impl ClockFace {
         self.now = now.time();
         self.today = now.date_naive();
         self.cache.clear();
+    }
+
+    /// Replace the active alarm/timer summaries available to the face overlay.
+    pub fn set_active_items(&mut self, active_items: Vec<FaceActiveItem>) {
+        self.active_items = active_items;
+        self.cache.clear();
+    }
+
+    /// Current active alarm/timer summaries wired into the face.
+    #[cfg(test)]
+    pub fn active_items(&self) -> &[FaceActiveItem] {
+        &self.active_items
     }
 }
 
@@ -118,5 +133,30 @@ impl canvas::Program<Message> for ClockFace {
         } else {
             mouse::Interaction::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::alarm::{Alarm, AlarmKind, AlertAction};
+    use crate::theme::ThemeConfig;
+
+    use super::ClockFace;
+
+    #[test]
+    fn set_active_items_replaces_projection() {
+        let mut face = ClockFace::new(ThemeConfig::default(), false, true, true);
+        let first = Alarm::new("Tea", AlarmKind::from_now(60), AlertAction::Both)
+            .face_active_item()
+            .expect("active alarm should project onto the clock face");
+        let second = Alarm::new("Meeting", AlarmKind::from_now(300), AlertAction::Both)
+            .face_active_item()
+            .expect("active alarm should project onto the clock face");
+
+        face.set_active_items(vec![first.clone()]);
+        assert_eq!(face.active_items(), &[first]);
+
+        face.set_active_items(vec![second.clone()]);
+        assert_eq!(face.active_items(), &[second]);
     }
 }
