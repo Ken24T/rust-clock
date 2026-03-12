@@ -51,9 +51,9 @@ Define the smallest shared data model and drawing seam needed to show active rem
 
 ### Slice Status
 
-Slices 1 and 2 are now completed by the current active-item projection and app-to-face wiring.
+Phase 0 is now completed by the current active-item projection, app-to-face wiring, and dedicated overlay seam.
 
-The clock face now receives a sorted, compact summary list of active alarms and timers, but there is still no visible overlay rendering. Slice 3 remains the next implementation step.
+The clock face now receives a sorted, compact summary list of active alarms and timers, and rendering has a dedicated overlay seam above the face and hands. The seam is still intentionally inert, so there is not yet any visible summary lane.
 
 ### Exit Criteria
 
@@ -151,10 +151,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 0, Slice 3:
+Proceed with Phase 1, Slice 1:
 
-- add a dedicated overlay drawing seam in `ClockFace`
-- keep the seam behaviourally inert at first if needed
-- use that seam as the only place where summary-lane rendering lands in the following slice
+- choose the baseline summary-lane position for medium and large clock sizes
+- define the typography and width rules for that lane
+- keep the first visible layout conservative so it does not collide with the date block or centre-hand readability
 
-That keeps the rendering work isolated from alarm state ownership and preserves the low-risk shape of the earlier slice.
+That turns the next slice into a bounded rendering decision instead of another structural refactor.

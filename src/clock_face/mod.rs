@@ -117,6 +117,7 @@ impl canvas::Program<Message> for ClockFace {
 
             self.draw_face(frame, centre, radius);
             self.draw_hands(frame, centre, radius);
+            self.draw_overlay(frame, centre, radius);
         });
 
         vec![clock]

@@ -1,6 +1,6 @@
 # Rust Clock — Implementation Plan
 
-## Current Version: 0.8.0
+## Current Version: 0.8.1
 
 **Target:** A moveable Linux desktop clock that behaves like a lightweight desklet, with live analog rendering, saved placement, configurable appearance, and built-in alarms/timers.
 

@@ -261,6 +261,14 @@ impl ClockFace {
         frame.fill(&dot, Color::from(self.theme.centre_dot_colour));
     }
 
+    /// Draw overlays that sit above the face and hands.
+    pub(super) fn draw_overlay(&self, _frame: &mut Frame, _centre: Point, _radius: f32) {
+        if !self.active_items.is_empty() {
+            // The dedicated overlay seam is intentionally inert for now.
+            // Follow-on slices will render the summary lane here.
+        }
+    }
+
     /// Draw a single clock hand from a short tail through the centre to the tip.
     /// The rendering varies according to `self.theme.hand_style`.
     fn draw_hand(
