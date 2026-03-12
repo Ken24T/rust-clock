@@ -149,6 +149,8 @@ mod windows {
         },
     };
 
+    use crate::app_icon;
+
     use super::{TrayCommand, QUICK_TIMER_PRESETS};
 
     const MENU_ID_SHOW_CLOCK: &str = "show-clock";
@@ -322,30 +324,12 @@ mod windows {
     }
 
     fn create_windows_tray_icon() -> Result<Icon, String> {
-        let mut rgba = vec![0_u8; 16 * 16 * 4];
-
-        for y in 0..16_u32 {
-            for x in 0..16_u32 {
-                let dx = x as i32 - 8;
-                let dy = y as i32 - 8;
-                let distance_sq = dx * dx + dy * dy;
-                let pixel = ((y * 16 + x) * 4) as usize;
-
-                if (28..=49).contains(&distance_sq) {
-                    rgba[pixel] = 220;
-                    rgba[pixel + 1] = 220;
-                    rgba[pixel + 2] = 220;
-                    rgba[pixel + 3] = 255;
-                } else if (distance_sq <= 8 && x == 8) || (distance_sq <= 24 && y == 8 && x >= 8) {
-                    rgba[pixel] = 48;
-                    rgba[pixel + 1] = 200;
-                    rgba[pixel + 2] = 160;
-                    rgba[pixel + 3] = 255;
-                }
-            }
-        }
-
-        Icon::from_rgba(rgba, 16, 16).map_err(|error| error.to_string())
+        Icon::from_rgba(
+            app_icon::clock_face_icon_rgba(app_icon::CLOCK_FACE_ICON_SIZE),
+            app_icon::CLOCK_FACE_ICON_SIZE,
+            app_icon::CLOCK_FACE_ICON_SIZE,
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub use SystemTrayHandle as HandleType;

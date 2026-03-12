@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 //! Rust Clock — a classic analog clock desklet with platform-specific desktop integration.
 //!
 //! Entry point: sets up the iced application with a transparent,
@@ -5,6 +10,7 @@
 
 mod alarm;
 mod alarm_panel;
+mod app_icon;
 mod clock_face;
 mod config;
 mod context_menu;
@@ -60,6 +66,7 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
         size: Size::new(size, size),
         position,
         level: window::Level::Normal,
+        icon: app_window_icon(),
         ..Default::default()
     };
 
@@ -676,6 +683,7 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
         size,
         position,
         level: window::Level::Normal,
+        icon: app_window_icon(),
         ..Default::default()
     };
 
@@ -690,6 +698,15 @@ fn apply_startup_window_hints(id: window::Id) -> Task<Message> {
 
 fn apply_control_window_hints(id: window::Id) -> Task<Message> {
     platform::apply_control_window_hints(id)
+}
+
+fn app_window_icon() -> Option<window::Icon> {
+    window::icon::from_rgba(
+        app_icon::clock_face_icon_rgba(app_icon::CLOCK_FACE_ICON_SIZE),
+        app_icon::CLOCK_FACE_ICON_SIZE,
+        app_icon::CLOCK_FACE_ICON_SIZE,
+    )
+    .ok()
 }
 
 /// Fire an alarm: play sound and/or send a notification based on alert action.
