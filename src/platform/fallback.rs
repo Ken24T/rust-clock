@@ -2,6 +2,18 @@ use iced::{window, Task};
 
 use crate::tray::{SystemTrayHandle, TrayCommand};
 
+use super::PlatformCapabilities;
+
+pub fn capabilities() -> PlatformCapabilities {
+    PlatformCapabilities {
+        system_tray: false,
+        notifications: false,
+        desktop_window_hints: false,
+        sticky_workspace: false,
+        skip_taskbar: false,
+    }
+}
+
 pub fn send_notification(summary: &str, body: &str) {
     let _ = (summary, body);
     eprintln!("Notifications are not implemented on this platform");

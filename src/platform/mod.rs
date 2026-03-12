@@ -16,6 +16,19 @@ use iced::{window, Task};
 
 pub use crate::tray::{SystemTrayHandle, TrayCommand};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlatformCapabilities {
+    pub system_tray: bool,
+    pub notifications: bool,
+    pub desktop_window_hints: bool,
+    pub sticky_workspace: bool,
+    pub skip_taskbar: bool,
+}
+
+pub fn capabilities() -> PlatformCapabilities {
+    implementation::capabilities()
+}
+
 /// Send a platform-native notification when available.
 pub fn send_notification(summary: &str, body: &str) {
     implementation::send_notification(summary, body);

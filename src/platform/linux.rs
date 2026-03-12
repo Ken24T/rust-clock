@@ -2,6 +2,18 @@ use iced::{window, Task};
 
 use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
+use super::PlatformCapabilities;
+
+pub fn capabilities() -> PlatformCapabilities {
+    PlatformCapabilities {
+        system_tray: true,
+        notifications: true,
+        desktop_window_hints: true,
+        sticky_workspace: true,
+        skip_taskbar: true,
+    }
+}
+
 pub fn send_notification(summary: &str, body: &str) {
     // Use notify-send directly — notify-rust's zbus backend can silently
     // fail to display on some desktops (e.g. Cinnamon).

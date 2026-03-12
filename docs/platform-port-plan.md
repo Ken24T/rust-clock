@@ -242,7 +242,23 @@ Completed by moving the Linux window-hint internals into the Linux platform impl
 
 ### Slice 4 Status
 
-In progress.
+Completed by routing tray startup and shutdown through the platform boundary instead of importing the tray backend directly in the shared app flow.
+
+### Slice 5 Status
+
+Completed by introducing an explicit platform capability model and using it in shared app startup/subscription decisions for tray polling and window-hint retries.
+
+## Phase 2 Summary
+
+Phase 2 is complete.
+
+It delivered:
+
+- notification delivery behind a platform service
+- window setting and hint hooks behind a platform service
+- Linux X11 hint internals moved out of the shared app entry file
+- tray startup routed through the platform boundary
+- explicit capability reporting for unsupported platform features
 
 ## Linux Validation Checklist
 

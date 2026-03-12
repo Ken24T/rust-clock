@@ -105,6 +105,7 @@ enum ControlWindowContent {
 struct ClockApp {
     clock_face: ClockFace,
     config: AppConfig,
+    capabilities: platform::PlatformCapabilities,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
     startup_hint_attempts: u8,
@@ -182,10 +183,15 @@ pub enum Message {
 impl ClockApp {
     fn new(config: AppConfig) -> Self {
         let theme = config.resolved_theme();
+        let capabilities = platform::capabilities();
         let alarm_manager = AlarmManager::load();
-        let (tray_handle, tray_receiver) = match start_system_tray() {
-            Some((tray_handle, tray_receiver)) => (Some(tray_handle), Some(tray_receiver)),
-            None => (None, None),
+        let (tray_handle, tray_receiver) = if capabilities.system_tray {
+            match start_system_tray() {
+                Some((tray_handle, tray_receiver)) => (Some(tray_handle), Some(tray_receiver)),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
         };
 
         Self {
@@ -196,6 +202,7 @@ impl ClockApp {
                 config.show_seconds,
             ),
             config,
+            capabilities,
             alarm_manager,
             alarm_form: AlarmForm::default(),
             startup_hint_attempts: 0,
@@ -589,7 +596,9 @@ impl ClockApp {
             std::time::Duration::from_secs(1)
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
-        let startup_hint_retries = if self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS {
+        let startup_hint_retries = if self.capabilities.desktop_window_hints
+            && self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS
+        {
             iced::time::every(std::time::Duration::from_millis(
                 STARTUP_HINT_RETRY_INTERVAL_MS,
             ))
@@ -597,8 +606,12 @@ impl ClockApp {
         } else {
             Subscription::none()
         };
-        let tray_events = iced::time::every(std::time::Duration::from_millis(150))
-            .map(|_| Message::PollTrayCommands);
+        let tray_events = if self.capabilities.system_tray && self.tray_receiver.is_some() {
+            iced::time::every(std::time::Duration::from_millis(150))
+                .map(|_| Message::PollTrayCommands)
+        } else {
+            Subscription::none()
+        };
 
         // Listen for window move events to save position after dragging.
         let window_events = window::events().map(|(id, event)| match event {
