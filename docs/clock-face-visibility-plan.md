@@ -124,9 +124,9 @@ Make the feature robust across the supported clock-size range, especially the sm
 
 ### Slice Status
 
-Slice 1 is now completed by an explicit overlay layout-mode selector with separate breakpoints for full-lane, reduced-lane, and minimal-indicator behaviour.
+Slices 1 and 2 are now completed by the explicit overlay layout-mode selector plus the first reduced and minimal fallback treatments.
 
-The current rendering path still only draws the full lane for the larger mode, but the fallback thresholds are now centralised and test-covered so the next slice can implement the smaller layouts without adding more radius-specific branching.
+Medium and large clocks keep the existing full summary lane. Intermediate radii now fall back to a single-line reduced lane that still supports item hover and overflow targeting, while smaller radii show a compact active-count indicator instead of dropping the overlay entirely.
 
 ### Exit Criteria
 
@@ -169,10 +169,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 3, Slice 2:
+Proceed with Phase 3, Slice 3:
 
-- implement the reduced-lane treatment for intermediate radii
-- add a minimal indicator mode for the smaller radii that still advertise active reminders
-- decide whether hover detail remains available in each fallback mode or only in the reduced lane
+- review theme contrast across the new reduced and minimal treatments
+- tighten edge cases such as long labels, near-expiry timers, and mixed alarm/timer sets
+- decide whether any small-mode copy or sizing needs final polish before closing the feature
 
-That keeps the next slice focused on the first user-visible fallback behaviours now that the breakpoint model is fixed.
+That keeps the next slice focused on polish and edge-case review now that all size tiers have a deliberate fallback.

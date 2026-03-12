@@ -93,9 +93,11 @@ The `Alarms & Timers` button opens the reminder window. If you already have acti
 
 Rust Clock includes a simple reminder panel for countdown timers and clock alarms.
 
-If you have an active reminder and the clock is at Medium or Large size, the main clock face now shows up to two active items as short summaries near the bottom of the dial. If more reminders are active, the last visible line shows a compact `+N more` overflow indicator.
+If you have an active reminder, the main clock face now keeps some reminder presence at every supported size. Medium and Large clocks show up to two active items as short summaries near the bottom of the dial. If more reminders are active, the last visible line shows a compact `+N more` overflow indicator.
 
-Hovering a visible reminder summary now shows a compact detail panel on the clock face. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders instead of listing them individually.
+Intermediate clock sizes switch to a reduced single-line summary so the face stays readable without dropping the overlay entirely. The smallest clock sizes show a compact active-count badge instead of item-by-item text.
+
+Hovering a visible reminder summary still shows a compact detail panel on the clock face. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders instead of listing them individually. The minimal count badge does not expose hover detail.
 
 ### Quick Timers
 

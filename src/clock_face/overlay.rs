@@ -22,6 +22,14 @@ const SUMMARY_LANE_SHADOW_OFFSET_FACTOR: f32 = 0.01;
 const SUMMARY_LANE_LINE_SPACING_FACTOR: f32 = 1.05;
 const SUMMARY_LANE_TEXT_WIDTH_FACTOR: f32 = 0.62;
 const SUMMARY_LANE_LINE_HIT_HEIGHT_FACTOR: f32 = 1.35;
+const REDUCED_LANE_WIDTH_FACTOR: f32 = 0.96;
+const REDUCED_LANE_HEIGHT_FACTOR: f32 = 0.14;
+const REDUCED_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.58;
+const REDUCED_LANE_TEXT_SIZE_FACTOR: f32 = 0.10;
+const MINIMAL_INDICATOR_WIDTH_FACTOR: f32 = 0.54;
+const MINIMAL_INDICATOR_HEIGHT_FACTOR: f32 = 0.14;
+const MINIMAL_INDICATOR_VERTICAL_OFFSET_FACTOR: f32 = 0.62;
+const MINIMAL_INDICATOR_TEXT_SIZE_FACTOR: f32 = 0.09;
 const HOVER_DETAIL_WIDTH_FACTOR: f32 = 1.08;
 const HOVER_DETAIL_HEIGHT_FACTOR: f32 = 0.28;
 const HOVER_DETAIL_VERTICAL_GAP_FACTOR: f32 = 0.08;
@@ -36,6 +44,13 @@ struct SummaryLaneLayout {
     text_size: f32,
     max_chars: usize,
     line_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MinimalIndicatorLayout {
+    bounds: Rectangle,
+    text_position: Point,
+    text_size: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +90,12 @@ enum OverlayLayoutMode {
     MinimalIndicator,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum OverlayLayout {
+    Summary(SummaryLaneLayout),
+    MinimalIndicator(MinimalIndicatorLayout),
+}
+
 impl ClockFace {
     /// Draw overlays that sit above the face and hands.
     pub(super) fn draw_overlay(
@@ -88,52 +109,52 @@ impl ClockFace {
             return;
         }
 
-        let visible_line_count = self.active_items.len().min(MAX_VISIBLE_SUMMARY_LINES);
-
-        let Some(layout) = summary_lane_layout(centre, radius, visible_line_count) else {
+        let Some(layout) = overlay_layout(centre, radius, self.active_items.len()) else {
             return;
         };
 
-        let summaries = summary_lane_texts(&self.active_items, layout.max_chars, layout.line_count);
-        let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
+        match layout {
+            OverlayLayout::Summary(layout) => {
+                draw_summary_lane(
+                    frame,
+                    &self.active_items,
+                    &layout,
+                    self.theme.numeral_colour.into(),
+                    self.theme.shadow_colour.into(),
+                    radius,
+                );
 
-        for (index, summary) in summaries.iter().enumerate() {
-            let position = layout.text_positions[index];
-
-            frame.fill_text(canvas::Text {
-                content: summary.clone(),
-                position: Point::new(position.x + shadow_offset, position.y + shadow_offset),
-                size: layout.text_size.into(),
-                color: self.theme.shadow_colour.into(),
-                align_x: alignment::Horizontal::Center.into(),
-                align_y: alignment::Vertical::Center,
-                ..canvas::Text::default()
-            });
-
-            frame.fill_text(canvas::Text {
-                content: summary.clone(),
-                position,
-                size: layout.text_size.into(),
-                color: self.theme.numeral_colour.into(),
-                align_x: alignment::Horizontal::Center.into(),
-                align_y: alignment::Vertical::Center,
-                ..canvas::Text::default()
-            });
-        }
-
-        if let Some(detail) = hover_detail(&self.active_items, layout.line_count, hovered_target) {
-            draw_hover_detail(
-                frame,
-                &layout,
-                radius,
-                detail,
-                HoverDetailStyle {
-                    face_colour: self.theme.face_colour.into(),
-                    border_colour: self.theme.border_colour.into(),
-                    text_colour: self.theme.numeral_colour.into(),
-                    shadow_colour: self.theme.shadow_colour.into(),
-                },
-            );
+                if let Some(detail) =
+                    hover_detail(&self.active_items, layout.line_count, hovered_target)
+                {
+                    draw_hover_detail(
+                        frame,
+                        &layout,
+                        radius,
+                        detail,
+                        HoverDetailStyle {
+                            face_colour: self.theme.face_colour.into(),
+                            border_colour: self.theme.border_colour.into(),
+                            text_colour: self.theme.numeral_colour.into(),
+                            shadow_colour: self.theme.shadow_colour.into(),
+                        },
+                    );
+                }
+            }
+            OverlayLayout::MinimalIndicator(layout) => {
+                draw_minimal_indicator(
+                    frame,
+                    &layout,
+                    &minimal_indicator_text(self.active_items.len()),
+                    HoverDetailStyle {
+                        face_colour: self.theme.face_colour.into(),
+                        border_colour: self.theme.border_colour.into(),
+                        text_colour: self.theme.numeral_colour.into(),
+                        shadow_colour: self.theme.shadow_colour.into(),
+                    },
+                    radius,
+                );
+            }
         }
     }
 
@@ -162,22 +183,75 @@ fn overlay_layout_mode(radius: f32) -> Option<OverlayLayoutMode> {
     }
 }
 
+fn overlay_layout(centre: Point, radius: f32, item_count: usize) -> Option<OverlayLayout> {
+    match overlay_layout_mode(radius)? {
+        OverlayLayoutMode::FullLane => summary_lane_layout_for_mode(
+            centre,
+            radius,
+            item_count.min(MAX_VISIBLE_SUMMARY_LINES),
+            OverlayLayoutMode::FullLane,
+        )
+        .map(OverlayLayout::Summary),
+        OverlayLayoutMode::ReducedLane => {
+            summary_lane_layout_for_mode(centre, radius, 1, OverlayLayoutMode::ReducedLane)
+                .map(OverlayLayout::Summary)
+        }
+        OverlayLayoutMode::MinimalIndicator => {
+            minimal_indicator_layout(centre, radius).map(OverlayLayout::MinimalIndicator)
+        }
+    }
+}
+
+#[cfg(test)]
 fn summary_lane_layout(centre: Point, radius: f32, line_count: usize) -> Option<SummaryLaneLayout> {
     if overlay_layout_mode(radius) != Some(OverlayLayoutMode::FullLane) {
         return None;
     }
 
+    summary_lane_layout_for_mode(centre, radius, line_count, OverlayLayoutMode::FullLane)
+}
+
+fn summary_lane_layout_for_mode(
+    centre: Point,
+    radius: f32,
+    line_count: usize,
+    mode: OverlayLayoutMode,
+) -> Option<SummaryLaneLayout> {
+    let (
+        width_factor,
+        single_height_factor,
+        multi_height_factor,
+        vertical_offset_factor,
+        text_size_factor,
+    ) = match mode {
+        OverlayLayoutMode::FullLane => (
+            SUMMARY_LANE_WIDTH_FACTOR,
+            SUMMARY_LANE_SINGLE_HEIGHT_FACTOR,
+            SUMMARY_LANE_MULTI_HEIGHT_FACTOR,
+            SUMMARY_LANE_VERTICAL_OFFSET_FACTOR,
+            SUMMARY_LANE_TEXT_SIZE_FACTOR,
+        ),
+        OverlayLayoutMode::ReducedLane => (
+            REDUCED_LANE_WIDTH_FACTOR,
+            REDUCED_LANE_HEIGHT_FACTOR,
+            REDUCED_LANE_HEIGHT_FACTOR,
+            REDUCED_LANE_VERTICAL_OFFSET_FACTOR,
+            REDUCED_LANE_TEXT_SIZE_FACTOR,
+        ),
+        OverlayLayoutMode::MinimalIndicator => return None,
+    };
+
     let line_count = line_count.clamp(1, MAX_VISIBLE_SUMMARY_LINES);
-    let width = radius * SUMMARY_LANE_WIDTH_FACTOR;
+    let width = radius * width_factor;
     let height = radius
         * if line_count == 1 {
-            SUMMARY_LANE_SINGLE_HEIGHT_FACTOR
+            single_height_factor
         } else {
-            SUMMARY_LANE_MULTI_HEIGHT_FACTOR
+            multi_height_factor
         };
     let x = centre.x - width / 2.0;
-    let y = centre.y + radius * SUMMARY_LANE_VERTICAL_OFFSET_FACTOR - height / 2.0;
-    let text_size = (radius * SUMMARY_LANE_TEXT_SIZE_FACTOR).clamp(12.0, 22.0);
+    let y = centre.y + radius * vertical_offset_factor - height / 2.0;
+    let text_size = (radius * text_size_factor).clamp(11.0, 22.0);
     let max_chars = ((width / (text_size * 0.62)).floor() as usize).max(12);
     let text_positions = lane_text_positions(x, y, width, height, text_size, line_count);
 
@@ -193,6 +267,122 @@ fn summary_lane_layout(centre: Point, radius: f32, line_count: usize) -> Option<
         max_chars,
         line_count,
     })
+}
+
+fn minimal_indicator_layout(centre: Point, radius: f32) -> Option<MinimalIndicatorLayout> {
+    if overlay_layout_mode(radius) != Some(OverlayLayoutMode::MinimalIndicator) {
+        return None;
+    }
+
+    let width = radius * MINIMAL_INDICATOR_WIDTH_FACTOR;
+    let height = radius * MINIMAL_INDICATOR_HEIGHT_FACTOR;
+    let x = centre.x - width / 2.0;
+    let y = centre.y + radius * MINIMAL_INDICATOR_VERTICAL_OFFSET_FACTOR - height / 2.0;
+    let text_size = (radius * MINIMAL_INDICATOR_TEXT_SIZE_FACTOR).clamp(10.0, 13.0);
+
+    Some(MinimalIndicatorLayout {
+        bounds: Rectangle {
+            x,
+            y,
+            width,
+            height,
+        },
+        text_position: Point::new(centre.x, y + height / 2.0),
+        text_size,
+    })
+}
+
+fn draw_summary_lane(
+    frame: &mut Frame,
+    items: &[FaceActiveItem],
+    layout: &SummaryLaneLayout,
+    text_colour: Color,
+    shadow_colour: Color,
+    radius: f32,
+) {
+    let summaries = summary_lane_texts(items, layout.max_chars, layout.line_count);
+    let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
+
+    for (index, summary) in summaries.iter().enumerate() {
+        let position = layout.text_positions[index];
+
+        frame.fill_text(canvas::Text {
+            content: summary.clone(),
+            position: Point::new(position.x + shadow_offset, position.y + shadow_offset),
+            size: layout.text_size.into(),
+            color: shadow_colour,
+            align_x: alignment::Horizontal::Center.into(),
+            align_y: alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+
+        frame.fill_text(canvas::Text {
+            content: summary.clone(),
+            position,
+            size: layout.text_size.into(),
+            color: text_colour,
+            align_x: alignment::Horizontal::Center.into(),
+            align_y: alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+    }
+}
+
+fn minimal_indicator_text(item_count: usize) -> String {
+    match item_count {
+        0 => String::new(),
+        1..=9 => item_count.to_string(),
+        _ => "9+".to_string(),
+    }
+}
+
+fn draw_minimal_indicator(
+    frame: &mut Frame,
+    layout: &MinimalIndicatorLayout,
+    text: &str,
+    style: HoverDetailStyle,
+    radius: f32,
+) {
+    let panel = Path::rectangle(
+        Point::new(layout.bounds.x, layout.bounds.y),
+        Size::new(layout.bounds.width, layout.bounds.height),
+    );
+    let mut background = style.face_colour;
+    background.a = background.a.max(0.84);
+
+    frame.fill(&panel, background);
+    frame.stroke(
+        &panel,
+        Stroke {
+            style: stroke::Style::Solid(style.border_colour),
+            width: 1.0,
+            ..Stroke::default()
+        },
+    );
+
+    let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
+    frame.fill_text(canvas::Text {
+        content: text.to_string(),
+        position: Point::new(
+            layout.text_position.x + shadow_offset,
+            layout.text_position.y + shadow_offset,
+        ),
+        size: layout.text_size.into(),
+        color: style.shadow_colour,
+        align_x: alignment::Horizontal::Center.into(),
+        align_y: alignment::Vertical::Center,
+        ..canvas::Text::default()
+    });
+
+    frame.fill_text(canvas::Text {
+        content: text.to_string(),
+        position: layout.text_position,
+        size: layout.text_size.into(),
+        color: style.text_colour,
+        align_x: alignment::Horizontal::Center.into(),
+        align_y: alignment::Vertical::Center,
+        ..canvas::Text::default()
+    });
 }
 
 fn lane_text_positions(
@@ -229,8 +419,11 @@ fn overlay_hit_regions(
         return Vec::new();
     }
 
-    let visible_line_count = items.len().min(MAX_VISIBLE_SUMMARY_LINES);
-    let Some(layout) = summary_lane_layout(centre, radius, visible_line_count) else {
+    let Some(layout) = overlay_layout(centre, radius, items.len()) else {
+        return Vec::new();
+    };
+
+    let OverlayLayout::Summary(layout) = layout else {
         return Vec::new();
     };
 
@@ -491,9 +684,9 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        hover_detail, overlay_hit_regions, overlay_layout_mode, rectangle_contains_point,
-        summary_lane_layout, summary_lane_text, summary_lane_texts, HoverDetail, OverlayHitTarget,
-        OverlayLayoutMode,
+        hover_detail, minimal_indicator_text, overlay_hit_regions, overlay_layout,
+        overlay_layout_mode, rectangle_contains_point, summary_lane_layout, summary_lane_text,
+        summary_lane_texts, HoverDetail, OverlayHitTarget, OverlayLayout, OverlayLayoutMode,
     };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
@@ -559,6 +752,18 @@ mod tests {
     #[test]
     fn overlay_layout_mode_hides_overlay_below_minimal_threshold() {
         assert_eq!(overlay_layout_mode(55.0), None);
+    }
+
+    #[test]
+    fn overlay_layout_uses_single_line_summary_in_reduced_mode() {
+        let layout = overlay_layout(Point::new(100.0, 100.0), 84.0, 3)
+            .expect("reduced sizes should still show a summary layout");
+
+        let OverlayLayout::Summary(layout) = layout else {
+            panic!("expected reduced mode to use a summary layout");
+        };
+
+        assert_eq!(layout.line_count, 1);
     }
 
     #[test]
@@ -649,6 +854,37 @@ mod tests {
     }
 
     #[test]
+    fn overlay_hit_regions_include_overflow_target_in_reduced_mode() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+            sample_item("Meeting", "22m 0s"),
+        ];
+        let regions = overlay_hit_regions(&items, Point::new(100.0, 100.0), 84.0);
+
+        assert_eq!(regions.len(), 2);
+        assert!(matches!(
+            regions[0].target,
+            OverlayHitTarget::OverflowIndicator {
+                hidden_count: 2,
+                ..
+            }
+        ));
+        assert!(matches!(
+            regions[1].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+    }
+
+    #[test]
+    fn overlay_hit_regions_are_hidden_in_minimal_mode() {
+        let items = vec![sample_item("Tea", "4m 10s")];
+        let regions = overlay_hit_regions(&items, Point::new(75.0, 75.0), 71.25);
+
+        assert!(regions.is_empty());
+    }
+
+    #[test]
     fn overflow_region_contains_its_estimated_text_area() {
         let items = vec![
             sample_item("Tea", "4m 10s"),
@@ -713,5 +949,12 @@ mod tests {
                 subtitle: "Open Alarms & Timers to view the full list".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn minimal_indicator_text_reports_active_count() {
+        assert_eq!(minimal_indicator_text(1), "1");
+        assert_eq!(minimal_indicator_text(4), "4");
+        assert_eq!(minimal_indicator_text(12), "9+");
     }
 }
