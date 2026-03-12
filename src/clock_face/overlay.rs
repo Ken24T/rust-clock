@@ -9,7 +9,9 @@ use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
 
 use super::ClockFace;
 
-const MIN_SUMMARY_LANE_RADIUS: f32 = 90.0;
+const MIN_MINIMAL_INDICATOR_RADIUS: f32 = 60.0;
+const MIN_REDUCED_LANE_RADIUS: f32 = 78.0;
+const MIN_FULL_SUMMARY_LANE_RADIUS: f32 = 90.0;
 const MAX_VISIBLE_SUMMARY_LINES: usize = 2;
 const SUMMARY_LANE_WIDTH_FACTOR: f32 = 1.06;
 const SUMMARY_LANE_SINGLE_HEIGHT_FACTOR: f32 = 0.16;
@@ -64,6 +66,13 @@ struct HoverDetailStyle {
     border_colour: Color,
     text_colour: Color,
     shadow_colour: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverlayLayoutMode {
+    FullLane,
+    ReducedLane,
+    MinimalIndicator,
 }
 
 impl ClockFace {
@@ -141,8 +150,20 @@ impl ClockFace {
     }
 }
 
+fn overlay_layout_mode(radius: f32) -> Option<OverlayLayoutMode> {
+    if radius >= MIN_FULL_SUMMARY_LANE_RADIUS {
+        Some(OverlayLayoutMode::FullLane)
+    } else if radius >= MIN_REDUCED_LANE_RADIUS {
+        Some(OverlayLayoutMode::ReducedLane)
+    } else if radius >= MIN_MINIMAL_INDICATOR_RADIUS {
+        Some(OverlayLayoutMode::MinimalIndicator)
+    } else {
+        None
+    }
+}
+
 fn summary_lane_layout(centre: Point, radius: f32, line_count: usize) -> Option<SummaryLaneLayout> {
-    if radius < MIN_SUMMARY_LANE_RADIUS {
+    if overlay_layout_mode(radius) != Some(OverlayLayoutMode::FullLane) {
         return None;
     }
 
@@ -470,8 +491,9 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        hover_detail, overlay_hit_regions, rectangle_contains_point, summary_lane_layout,
-        summary_lane_text, summary_lane_texts, HoverDetail, OverlayHitTarget,
+        hover_detail, overlay_hit_regions, overlay_layout_mode, rectangle_contains_point,
+        summary_lane_layout, summary_lane_text, summary_lane_texts, HoverDetail, OverlayHitTarget,
+        OverlayLayoutMode,
     };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
@@ -504,6 +526,39 @@ mod tests {
     fn summary_lane_layout_is_hidden_for_small_clock() {
         let centre = Point::new(75.0, 75.0);
         assert!(summary_lane_layout(centre, 71.0, 1).is_none());
+    }
+
+    #[test]
+    fn overlay_layout_mode_uses_full_lane_for_medium_and_up() {
+        assert_eq!(
+            overlay_layout_mode(119.0),
+            Some(OverlayLayoutMode::FullLane)
+        );
+        assert_eq!(
+            overlay_layout_mode(166.0),
+            Some(OverlayLayoutMode::FullLane)
+        );
+    }
+
+    #[test]
+    fn overlay_layout_mode_uses_reduced_lane_for_intermediate_sizes() {
+        assert_eq!(
+            overlay_layout_mode(84.0),
+            Some(OverlayLayoutMode::ReducedLane)
+        );
+    }
+
+    #[test]
+    fn overlay_layout_mode_uses_minimal_indicator_for_small_clock_sizes() {
+        assert_eq!(
+            overlay_layout_mode(71.25),
+            Some(OverlayLayoutMode::MinimalIndicator)
+        );
+    }
+
+    #[test]
+    fn overlay_layout_mode_hides_overlay_below_minimal_threshold() {
+        assert_eq!(overlay_layout_mode(55.0), None);
     }
 
     #[test]

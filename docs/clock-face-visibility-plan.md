@@ -122,6 +122,12 @@ Make the feature robust across the supported clock-size range, especially the sm
 2. Implement the reduced and minimal fallback layouts for small clocks
 3. Review theme contrast and edge cases such as long labels, near-expiry timers, and mixed alarm/timer sets
 
+### Slice Status
+
+Slice 1 is now completed by an explicit overlay layout-mode selector with separate breakpoints for full-lane, reduced-lane, and minimal-indicator behaviour.
+
+The current rendering path still only draws the full lane for the larger mode, but the fallback thresholds are now centralised and test-covered so the next slice can implement the smaller layouts without adding more radius-specific branching.
+
 ### Exit Criteria
 
 - small clocks use an intentional fallback instead of a squeezed full layout
@@ -163,10 +169,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 3, Slice 1:
+Proceed with Phase 3, Slice 2:
 
-- define size breakpoints for full lane, reduced lane, and minimal indicator modes
-- decide which parts of the hover treatment survive each smaller layout tier
-- keep the current medium/large behaviour unchanged while introducing the fallback rules
+- implement the reduced-lane treatment for intermediate radii
+- add a minimal indicator mode for the smaller radii that still advertise active reminders
+- decide whether hover detail remains available in each fallback mode or only in the reduced lane
 
-That keeps the next slice focused on small-size behaviour without reopening the medium/large interaction design.
+That keeps the next slice focused on the first user-visible fallback behaviours now that the breakpoint model is fixed.
