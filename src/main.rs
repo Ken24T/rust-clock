@@ -8,6 +8,7 @@ mod alarm_panel;
 mod clock_face;
 mod config;
 mod context_menu;
+mod platform;
 mod theme;
 mod tray;
 
@@ -856,27 +857,7 @@ fn send_notification(alarm: &alarm::Alarm) {
             }
         }
     };
-    // Use notify-send directly — notify-rust's zbus backend can silently
-    // fail to display on some desktops (e.g. Cinnamon).
-    match std::process::Command::new("notify-send")
-        .arg("--app-name=Rust Clock")
-        .arg("-t")
-        .arg("10000")
-        .arg(&summary)
-        .arg(&body)
-        .spawn()
-    {
-        Ok(mut child) => {
-            std::thread::spawn(move || match child.wait() {
-                Ok(status) if !status.success() => {
-                    eprintln!("notify-send exited with status: {status}");
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Failed to wait for notify-send: {e}"),
-            });
-        }
-        Err(e) => eprintln!("Failed to send notification: {e}"),
-    }
+    platform::send_notification(&summary, &body);
 }
 
 /// Human-friendly label for a timer duration.

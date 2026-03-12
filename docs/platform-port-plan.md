@@ -300,3 +300,28 @@ Phase 1 is documented and completed by [platform-boundary-design.md](platform-bo
 ## Next Phase Preview
 
 Phase 2 should begin code extraction with the narrowest safe service boundary first, ideally notifications or another small platform-specific seam, while preserving Linux runtime behaviour.
+
+## Phase 2 — Narrow Service Extraction
+
+### Intent
+
+Begin code extraction by moving the smallest platform-specific seams behind explicit platform services without intentionally changing Linux runtime behaviour.
+
+### Slices
+
+1. Notification service extraction
+2. Window-hook extraction
+3. Linux native hint extraction into platform modules
+4. Tray service adaptation
+5. Capability reporting introduction
+
+### Slice Status
+
+Slice 1 is completed by the current notification-service extraction.
+
+### Exit Criteria
+
+- notification delivery is behind a platform-facing boundary
+- Linux notification behaviour is preserved
+- unsupported non-Linux platforms remain stable
+- no broader runtime refactor is coupled to this slice
