@@ -136,7 +136,7 @@ User-facing and supporting documents now live under `docs/` unless they are part
 ## Current Limitations
 
 - No hourly chime, snooze, recurring alarms, or multi-clock support yet
-- No on-face hover callout or small-clock fallback yet
+- No small-clock fallback for the reminder lane yet
 - No dedicated settings dialog beyond the current control windows
 - Wayland desktop-layer integration is still pending
 - Windows tray support uses a platform-specific backend and should be treated as an early baseline rather than final polished packaging behaviour

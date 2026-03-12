@@ -1,11 +1,11 @@
 //! Overlay drawing helpers for active alarm/timer summaries.
 
 use iced::alignment;
-use iced::widget::canvas::{self, Frame};
-use iced::{Point, Rectangle};
+use iced::widget::canvas::{self, stroke, Frame, Path, Stroke};
+use iced::{Color, Point, Rectangle, Size};
 use uuid::Uuid;
 
-use crate::alarm::FaceActiveItem;
+use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
 
 use super::ClockFace;
 
@@ -20,6 +20,12 @@ const SUMMARY_LANE_SHADOW_OFFSET_FACTOR: f32 = 0.01;
 const SUMMARY_LANE_LINE_SPACING_FACTOR: f32 = 1.05;
 const SUMMARY_LANE_TEXT_WIDTH_FACTOR: f32 = 0.62;
 const SUMMARY_LANE_LINE_HIT_HEIGHT_FACTOR: f32 = 1.35;
+const HOVER_DETAIL_WIDTH_FACTOR: f32 = 1.08;
+const HOVER_DETAIL_HEIGHT_FACTOR: f32 = 0.28;
+const HOVER_DETAIL_VERTICAL_GAP_FACTOR: f32 = 0.08;
+const HOVER_DETAIL_TITLE_SIZE_FACTOR: f32 = 0.10;
+const HOVER_DETAIL_SUBTITLE_SIZE_FACTOR: f32 = 0.075;
+const HOVER_DETAIL_LINE_SPACING_FACTOR: f32 = 1.15;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SummaryLaneLayout {
@@ -45,9 +51,30 @@ struct OverlayHitRegion {
     bounds: Rectangle,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HoverDetail {
+    anchor_index: usize,
+    title: String,
+    subtitle: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HoverDetailStyle {
+    face_colour: Color,
+    border_colour: Color,
+    text_colour: Color,
+    shadow_colour: Color,
+}
+
 impl ClockFace {
     /// Draw overlays that sit above the face and hands.
-    pub(super) fn draw_overlay(&self, frame: &mut Frame, centre: Point, radius: f32) {
+    pub(super) fn draw_overlay(
+        &self,
+        frame: &mut Frame,
+        centre: Point,
+        radius: f32,
+        hovered_target: Option<OverlayHitTarget>,
+    ) {
         if self.active_items.is_empty() {
             return;
         }
@@ -83,6 +110,21 @@ impl ClockFace {
                 align_y: alignment::Vertical::Center,
                 ..canvas::Text::default()
             });
+        }
+
+        if let Some(detail) = hover_detail(&self.active_items, layout.line_count, hovered_target) {
+            draw_hover_detail(
+                frame,
+                &layout,
+                radius,
+                detail,
+                HoverDetailStyle {
+                    face_colour: self.theme.face_colour.into(),
+                    border_colour: self.theme.border_colour.into(),
+                    text_colour: self.theme.numeral_colour.into(),
+                    shadow_colour: self.theme.shadow_colour.into(),
+                },
+            );
         }
     }
 
@@ -296,6 +338,120 @@ fn summary_lane_text(item: &FaceActiveItem, max_chars: usize, trailing_suffix: &
     format!("{label}{suffix}")
 }
 
+fn hover_detail(
+    items: &[FaceActiveItem],
+    visible_line_count: usize,
+    hovered_target: Option<OverlayHitTarget>,
+) -> Option<HoverDetail> {
+    let hovered_target = hovered_target?;
+    let visible_items = items.iter().take(visible_line_count).collect::<Vec<_>>();
+
+    match hovered_target {
+        OverlayHitTarget::SummaryItem(id) => visible_items
+            .iter()
+            .enumerate()
+            .find(|(_, item)| item.id == id)
+            .map(|(anchor_index, item)| HoverDetail {
+                anchor_index,
+                title: item.label.clone(),
+                subtitle: format!(
+                    "{} • {}",
+                    match item.kind {
+                        FaceActiveItemKind::Alarm => "alarm",
+                        FaceActiveItemKind::Timer => "timer",
+                    },
+                    item.remaining_text
+                ),
+            }),
+        OverlayHitTarget::OverflowIndicator {
+            anchor_id,
+            hidden_count,
+        } => {
+            if hidden_count == 0 {
+                return None;
+            }
+
+            visible_items
+                .iter()
+                .enumerate()
+                .find(|(_, item)| item.id == anchor_id)
+                .map(|(anchor_index, _)| HoverDetail {
+                    anchor_index,
+                    title: format!(
+                        "{hidden_count} more active reminder{}",
+                        if hidden_count == 1 { "" } else { "s" }
+                    ),
+                    subtitle: "Open Alarms & Timers to view the full list".to_string(),
+                })
+        }
+    }
+}
+
+fn draw_hover_detail(
+    frame: &mut Frame,
+    layout: &SummaryLaneLayout,
+    radius: f32,
+    detail: HoverDetail,
+    style: HoverDetailStyle,
+) {
+    let width = radius * HOVER_DETAIL_WIDTH_FACTOR;
+    let height = radius * HOVER_DETAIL_HEIGHT_FACTOR;
+    let gap = radius * HOVER_DETAIL_VERTICAL_GAP_FACTOR;
+    let title_size = (radius * HOVER_DETAIL_TITLE_SIZE_FACTOR).clamp(12.0, 20.0);
+    let subtitle_size = (radius * HOVER_DETAIL_SUBTITLE_SIZE_FACTOR).clamp(10.0, 15.0);
+    let anchor_x = layout.text_positions[detail.anchor_index].x;
+    let min_x = layout.bounds.x;
+    let max_x = layout.bounds.x + layout.bounds.width - width;
+    let x = (anchor_x - width / 2.0).clamp(min_x, max_x);
+    let y = layout.bounds.y - height - gap;
+
+    let panel = Path::rectangle(Point::new(x, y), Size::new(width, height));
+    let mut background = style.face_colour;
+    background.a = background.a.max(0.88);
+
+    frame.fill(&panel, background);
+    frame.stroke(
+        &panel,
+        Stroke {
+            style: stroke::Style::Solid(style.border_colour),
+            width: 1.0,
+            ..Stroke::default()
+        },
+    );
+
+    let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
+    let centre_x = x + width / 2.0;
+    let centre_y = y + height / 2.0;
+    let line_offset = title_size * HOVER_DETAIL_LINE_SPACING_FACTOR / 2.0;
+    let title_position = Point::new(centre_x, centre_y - line_offset);
+    let subtitle_position = Point::new(centre_x, centre_y + line_offset * 0.75);
+
+    for (content, position, size) in [
+        (detail.title, title_position, title_size),
+        (detail.subtitle, subtitle_position, subtitle_size),
+    ] {
+        frame.fill_text(canvas::Text {
+            content: content.clone(),
+            position: Point::new(position.x + shadow_offset, position.y + shadow_offset),
+            size: size.into(),
+            color: style.shadow_colour,
+            align_x: alignment::Horizontal::Center.into(),
+            align_y: alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+
+        frame.fill_text(canvas::Text {
+            content,
+            position,
+            size: size.into(),
+            color: style.text_colour,
+            align_x: alignment::Horizontal::Center.into(),
+            align_y: alignment::Vertical::Center,
+            ..canvas::Text::default()
+        });
+    }
+}
+
 fn truncate_text(text: &str, max_chars: usize) -> String {
     let text_len = text.chars().count();
     if text_len <= max_chars {
@@ -314,8 +470,8 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        overlay_hit_regions, rectangle_contains_point, summary_lane_layout, summary_lane_text,
-        summary_lane_texts, OverlayHitTarget,
+        hover_detail, overlay_hit_regions, rectangle_contains_point, summary_lane_layout,
+        summary_lane_text, summary_lane_texts, HoverDetail, OverlayHitTarget,
     };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
@@ -324,7 +480,7 @@ mod tests {
 
     fn sample_item(label: &str, remaining_text: &str) -> FaceActiveItem {
         FaceActiveItem {
-            id: Uuid::nil(),
+            id: Uuid::new_v4(),
             label: label.to_string(),
             kind: FaceActiveItemKind::Timer,
             target: Local::now(),
@@ -459,5 +615,48 @@ mod tests {
             overflow_region.bounds,
             sample_point
         ));
+    }
+
+    #[test]
+    fn hover_detail_uses_visible_item_label_and_status() {
+        let items = vec![sample_item("Tea", "4m 10s")];
+        let detail = hover_detail(&items, 1, Some(OverlayHitTarget::SummaryItem(items[0].id)))
+            .expect("expected item hover detail");
+
+        assert_eq!(
+            detail,
+            HoverDetail {
+                anchor_index: 0,
+                title: "Tea".to_string(),
+                subtitle: "timer • 4m 10s".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn hover_detail_uses_aggregate_text_for_overflow_target() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+            sample_item("Meeting", "22m 0s"),
+        ];
+        let detail = hover_detail(
+            &items,
+            2,
+            Some(OverlayHitTarget::OverflowIndicator {
+                anchor_id: items[1].id,
+                hidden_count: 1,
+            }),
+        )
+        .expect("expected overflow hover detail");
+
+        assert_eq!(
+            detail,
+            HoverDetail {
+                anchor_index: 1,
+                title: "1 more active reminder".to_string(),
+                subtitle: "Open Alarms & Timers to view the full list".to_string(),
+            }
+        );
     }
 }

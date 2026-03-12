@@ -95,6 +95,8 @@ Rust Clock includes a simple reminder panel for countdown timers and clock alarm
 
 If you have an active reminder and the clock is at Medium or Large size, the main clock face now shows up to two active items as short summaries near the bottom of the dial. If more reminders are active, the last visible line shows a compact `+N more` overflow indicator.
 
+Hovering a visible reminder summary now shows a compact detail panel on the clock face. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders instead of listing them individually.
+
 ### Quick Timers
 
 If you want something fast, you can start one of these straight away:
