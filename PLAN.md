@@ -158,6 +158,58 @@ a standalone Rust binary using iced — no JavaScript, no DE-specific plugin API
 - [ ] Snooze support (5-minute re-fire)
 - [ ] Recurring alarms
 
+### Face-level alarm visibility
+
+- [ ] Add an on-face active-item summary lane centred above the `6` position
+- [ ] Render active alarms and timers in a compact, glanceable format that does not compete with the hands or numerals
+- [ ] Prioritise what is shown when space is limited:
+  - imminently due items first
+  - then remaining active timers
+  - then future alarms
+- [ ] Remove timers/alarms from the face summary immediately once they expire or fire
+- [ ] Define a compact summary format for each visible item:
+  - timer: short label plus remaining time (for example `Tea 04:12`)
+  - alarm: short label plus target time (for example `Call 14:30`)
+  - untitled items fall back to `Timer` / `Alarm`
+- [ ] Cap the number of rendered items and add overflow handling such as `+2 more`
+- [ ] Use distinct visual treatment for timers vs alarms without adding clutter
+- [ ] Add size-aware fallbacks so small clock sizes collapse to fewer items or a count-only summary
+- [ ] Ensure summaries remain legible across built-in themes and do not overlap the date or centre area
+
+### Hover and callout behaviour
+
+- [ ] Add hit-testing for each rendered face summary item so hover can target a specific alarm or timer
+- [ ] Show a callout on mouseover with full item details:
+  - type (`Alarm` / `Timer`)
+  - full label
+  - target date/time or remaining duration
+  - notification message when present
+  - alert mode (`Sound`, `Notification`, `Both`)
+- [ ] Keep the callout as lightweight as possible: no dedicated settings window, no persistent state, no click actions
+- [ ] Anchor the callout close to the hovered summary while keeping it inside the clock face bounds where possible
+- [ ] Dismiss the callout immediately when the pointer leaves the clock face
+- [ ] Make the callout strictly hover-only and read-only so it does not conflict with drag or right-click interactions
+- [ ] Add keyboard-free behaviour only for now; detailed editing remains in the existing controls window
+
+### Implementation approach
+
+- [ ] Compute a dedicated face-summary view model in application state from the current `AlarmManager` data on each tick
+- [ ] Keep rendering and interaction responsibilities separate:
+  - `ClockApp` owns summary data, hover state, and callout state
+  - `ClockFace` renders summaries and reports hover targets
+  - the main clock window renders the callout inline as a lightweight hover element
+- [ ] Extend canvas event handling to react to pointer movement without breaking existing drag and context-menu behaviour
+- [ ] Add geometry bookkeeping for summary bounding boxes so hover can be resolved deterministically
+- [ ] Treat the whole feature as ephemeral display state only; no summary or callout interaction should navigate to editing controls
+- [ ] Reuse existing alarm formatting helpers where possible so panel and face descriptions stay consistent
+- [ ] Add tests around summary ordering and formatting to keep behaviour stable as alarms/timers evolve
+- [ ] Manually verify behaviour at multiple clock sizes and with overlapping states:
+  - one timer
+  - multiple timers
+  - mixed timers and alarms
+  - item expiring and disappearing immediately
+  - no active items
+
 ---
 
 ## Phase 7 — Packaging & Distribution
@@ -185,4 +237,5 @@ a standalone Rust binary using iced — no JavaScript, no DE-specific plugin API
 | X11 first, Wayland later | Cinnamon on Mint uses X11 by default. Wayland support is future-proofing. |
 | Config file as source of truth | All customisation persisted in `~/.config/rust-clock/config.toml`. GUI settings write back to this file. |
 | 60 fps smooth second hand | Visually premium. Uses `window::frames()` — only redraws when frame is requested, minimal CPU. |
+| Alarm/timer visibility on the face | The clock should expose active time-sensitive items without forcing the controls window open; summaries stay compact and details appear on hover. |
 - Animated theme transitions
