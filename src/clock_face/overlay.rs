@@ -3,6 +3,7 @@
 use iced::alignment;
 use iced::widget::canvas::{self, Frame};
 use iced::{Point, Rectangle};
+use uuid::Uuid;
 
 use crate::alarm::FaceActiveItem;
 
@@ -17,6 +18,8 @@ const SUMMARY_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.52;
 const SUMMARY_LANE_TEXT_SIZE_FACTOR: f32 = 0.11;
 const SUMMARY_LANE_SHADOW_OFFSET_FACTOR: f32 = 0.01;
 const SUMMARY_LANE_LINE_SPACING_FACTOR: f32 = 1.05;
+const SUMMARY_LANE_TEXT_WIDTH_FACTOR: f32 = 0.62;
+const SUMMARY_LANE_LINE_HIT_HEIGHT_FACTOR: f32 = 1.35;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SummaryLaneLayout {
@@ -25,6 +28,21 @@ struct SummaryLaneLayout {
     text_size: f32,
     max_chars: usize,
     line_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OverlayHitTarget {
+    SummaryItem(Uuid),
+    OverflowIndicator {
+        anchor_id: Uuid,
+        hidden_count: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OverlayHitRegion {
+    target: OverlayHitTarget,
+    bounds: Rectangle,
 }
 
 impl ClockFace {
@@ -66,6 +84,18 @@ impl ClockFace {
                 ..canvas::Text::default()
             });
         }
+    }
+
+    pub(super) fn overlay_hit_target(
+        &self,
+        cursor_position: Point,
+        centre: Point,
+        radius: f32,
+    ) -> Option<OverlayHitTarget> {
+        overlay_hit_regions(&self.active_items, centre, radius)
+            .into_iter()
+            .find(|region| rectangle_contains_point(region.bounds, cursor_position))
+            .map(|region| region.target)
     }
 }
 
@@ -127,6 +157,105 @@ fn lane_text_positions(
     }
 }
 
+fn overlay_hit_regions(
+    items: &[FaceActiveItem],
+    centre: Point,
+    radius: f32,
+) -> Vec<OverlayHitRegion> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+
+    let visible_line_count = items.len().min(MAX_VISIBLE_SUMMARY_LINES);
+    let Some(layout) = summary_lane_layout(centre, radius, visible_line_count) else {
+        return Vec::new();
+    };
+
+    let summaries = summary_lane_texts(items, layout.max_chars, layout.line_count);
+    let extra_count = items.len().saturating_sub(layout.line_count);
+    let mut regions = Vec::new();
+
+    for (index, item) in items.iter().take(layout.line_count).enumerate() {
+        let line_bounds = summary_line_hit_bounds(&layout, index);
+
+        if index + 1 == layout.line_count && extra_count > 0 {
+            let overflow_suffix = format!(" +{extra_count} more");
+            let overflow_bounds = overflow_hit_bounds(
+                &layout,
+                line_bounds,
+                index,
+                &summaries[index],
+                &overflow_suffix,
+            );
+
+            regions.push(OverlayHitRegion {
+                target: OverlayHitTarget::OverflowIndicator {
+                    anchor_id: item.id,
+                    hidden_count: extra_count,
+                },
+                bounds: overflow_bounds,
+            });
+        }
+
+        regions.push(OverlayHitRegion {
+            target: OverlayHitTarget::SummaryItem(item.id),
+            bounds: line_bounds,
+        });
+    }
+
+    regions.sort_by_key(|region| match region.target {
+        OverlayHitTarget::OverflowIndicator { .. } => 0,
+        OverlayHitTarget::SummaryItem(_) => 1,
+    });
+
+    regions
+}
+
+fn summary_line_hit_bounds(layout: &SummaryLaneLayout, index: usize) -> Rectangle {
+    let position = layout.text_positions[index];
+    let line_height = layout.text_size * SUMMARY_LANE_LINE_HIT_HEIGHT_FACTOR;
+
+    Rectangle {
+        x: layout.bounds.x,
+        y: position.y - line_height / 2.0,
+        width: layout.bounds.width,
+        height: line_height,
+    }
+}
+
+fn overflow_hit_bounds(
+    layout: &SummaryLaneLayout,
+    line_bounds: Rectangle,
+    index: usize,
+    summary_text: &str,
+    overflow_suffix: &str,
+) -> Rectangle {
+    let total_width = estimated_text_width(summary_text, layout.text_size);
+    let overflow_width = estimated_text_width(overflow_suffix, layout.text_size);
+    let line_centre_x = layout.text_positions[index].x;
+    let overflow_centre_x = line_centre_x + total_width / 2.0 - overflow_width / 2.0;
+    let overflow_x = (overflow_centre_x - overflow_width / 2.0).max(layout.bounds.x);
+    let overflow_right = (overflow_x + overflow_width).min(layout.bounds.x + layout.bounds.width);
+
+    Rectangle {
+        x: overflow_x,
+        y: line_bounds.y,
+        width: (overflow_right - overflow_x).max(0.0),
+        height: line_bounds.height,
+    }
+}
+
+fn estimated_text_width(text: &str, text_size: f32) -> f32 {
+    text.chars().count() as f32 * text_size * SUMMARY_LANE_TEXT_WIDTH_FACTOR
+}
+
+fn rectangle_contains_point(bounds: Rectangle, point: Point) -> bool {
+    point.x >= bounds.x
+        && point.x <= bounds.x + bounds.width
+        && point.y >= bounds.y
+        && point.y <= bounds.y + bounds.height
+}
+
 fn summary_lane_texts(
     items: &[FaceActiveItem],
     max_chars: usize,
@@ -184,7 +313,10 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{summary_lane_layout, summary_lane_text, summary_lane_texts};
+    use super::{
+        overlay_hit_regions, rectangle_contains_point, summary_lane_layout, summary_lane_text,
+        summary_lane_texts, OverlayHitTarget,
+    };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
     use iced::Point;
@@ -257,5 +389,75 @@ mod tests {
         assert_eq!(layout.line_count, 2);
         assert!(layout.text_positions[0].y < layout.text_positions[1].y);
         assert!(layout.bounds.height > 20.0);
+    }
+
+    #[test]
+    fn overlay_hit_regions_include_rows_for_visible_items() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+        ];
+        let regions = overlay_hit_regions(&items, Point::new(125.0, 125.0), 119.0);
+
+        assert_eq!(regions.len(), 2);
+        assert!(matches!(
+            regions[0].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+        assert!(matches!(
+            regions[1].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+    }
+
+    #[test]
+    fn overlay_hit_regions_include_overflow_target_before_row_target() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+            sample_item("Meeting", "22m 0s"),
+        ];
+        let regions = overlay_hit_regions(&items, Point::new(125.0, 125.0), 119.0);
+
+        assert_eq!(regions.len(), 3);
+        assert!(matches!(
+            regions[0].target,
+            OverlayHitTarget::OverflowIndicator {
+                hidden_count: 1,
+                ..
+            }
+        ));
+        assert!(matches!(
+            regions[1].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+        assert!(matches!(
+            regions[2].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+    }
+
+    #[test]
+    fn overflow_region_contains_its_estimated_text_area() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+            sample_item("Meeting", "22m 0s"),
+        ];
+        let regions = overlay_hit_regions(&items, Point::new(125.0, 125.0), 119.0);
+        let overflow_region = regions
+            .iter()
+            .find(|region| matches!(region.target, OverlayHitTarget::OverflowIndicator { .. }))
+            .expect("expected overflow region");
+
+        let sample_point = Point::new(
+            overflow_region.bounds.x + overflow_region.bounds.width / 2.0,
+            overflow_region.bounds.y + overflow_region.bounds.height / 2.0,
+        );
+
+        assert!(rectangle_contains_point(
+            overflow_region.bounds,
+            sample_point
+        ));
     }
 }

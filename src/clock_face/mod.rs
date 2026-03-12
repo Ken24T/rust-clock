@@ -130,8 +130,18 @@ impl canvas::Program<Message> for ClockFace {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if cursor.is_over(bounds) {
-            mouse::Interaction::Grab
+        if let Some(cursor_pos) = cursor.position_in(bounds) {
+            let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+            let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
+
+            if self
+                .overlay_hit_target(cursor_pos, centre, radius)
+                .is_some()
+            {
+                mouse::Interaction::Pointer
+            } else {
+                mouse::Interaction::Grab
+            }
         } else {
             mouse::Interaction::default()
         }
