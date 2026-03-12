@@ -12,13 +12,9 @@ mod theme;
 mod tray;
 
 use iced::keyboard;
-use iced::widget::{canvas, center, stack};
+use iced::widget::canvas;
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 
-/// Minimum window width when an overlay is visible.
-const OVERLAY_MIN_WIDTH: f32 = 300.0;
-/// Minimum window height when an overlay is visible.
-const OVERLAY_MIN_HEIGHT: f32 = 500.0;
 /// Number of early ticks during which Linux window hints are retried.
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
 /// Retry interval for Linux startup window hints.
@@ -33,8 +29,25 @@ use tray::{start_system_tray, SystemTrayHandle, TrayCommand};
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();
-    let size = config.size as f32;
+    iced::daemon(
+        move || {
+            let app = ClockApp::new(config.clone());
+            let (_id, open_task) = window::open(main_window_settings(&config));
 
+            (app, open_task.map(|_| Message::ApplyStartupHints))
+        },
+        ClockApp::update,
+        ClockApp::view,
+    )
+    .title(window_title)
+    .subscription(ClockApp::subscription)
+    .theme(clock_theme)
+    .antialiasing(true)
+    .run()
+}
+
+fn main_window_settings(config: &AppConfig) -> window::Settings {
+    let size = config.size as f32;
     let position = config
         .position
         .map(|(x, y)| window::Position::Specific(Point::new(x as f32, y as f32)))
@@ -54,26 +67,11 @@ pub fn main() -> iced::Result {
         window_settings.platform_specific.application_id = "rust-clock".to_string();
     }
 
-    iced::application(
-        move || {
-            (
-                ClockApp::new(config.clone()),
-                Task::done(Message::ApplyStartupHints),
-            )
-        },
-        ClockApp::update,
-        ClockApp::view,
-    )
-    .title("Rust Clock")
-    .subscription(ClockApp::subscription)
-    .window(window_settings)
-    .theme(clock_theme)
-    .antialiasing(true)
-    .run()
+    window_settings
 }
 
 /// Application theme: transparent background so the desktop shows through.
-fn clock_theme(_app: &ClockApp) -> iced::Theme {
+fn clock_theme(_app: &ClockApp, _window: window::Id) -> iced::Theme {
     iced::Theme::custom(
         "Clock".to_string(),
         iced::theme::Palette {
@@ -87,6 +85,24 @@ fn clock_theme(_app: &ClockApp) -> iced::Theme {
     )
 }
 
+fn window_title(app: &ClockApp, window: window::Id) -> String {
+    if Some(window) == app.control_window {
+        match app.control_window_content {
+            Some(ControlWindowContent::Menu) => "Rust Clock Settings".to_string(),
+            Some(ControlWindowContent::AlarmPanel) => "Rust Clock Alarms & Timers".to_string(),
+            None => "Rust Clock".to_string(),
+        }
+    } else {
+        "Rust Clock".to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ControlWindowContent {
+    Menu,
+    AlarmPanel,
+}
+
 /// Top-level application state.
 struct ClockApp {
     clock_face: ClockFace,
@@ -94,10 +110,10 @@ struct ClockApp {
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
     startup_hint_attempts: u8,
+    control_window: Option<window::Id>,
+    control_window_content: Option<ControlWindowContent>,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
-    show_menu: bool,
-    show_alarm_panel: bool,
 }
 
 /// Messages produced by the application.
@@ -107,6 +123,8 @@ pub enum Message {
     Tick,
     /// Retry Linux startup window hints.
     ApplyStartupHints,
+    /// A control window finished opening.
+    ControlWindowOpened(window::Id),
     /// No state change is needed for this event.
     NoOp,
     /// Poll pending tray actions.
@@ -114,7 +132,9 @@ pub enum Message {
     /// Left-click: initiate OS-level window drag.
     StartDrag,
     /// Window moved to a new position — save it.
-    WindowMoved(Point),
+    WindowMoved(window::Id, Point),
+    /// User requested that a window close.
+    WindowCloseRequested(window::Id),
     /// Toggle the right-click context menu.
     ToggleContextMenu,
     /// Dismiss the context menu (click-away or Escape).
@@ -181,10 +201,10 @@ impl ClockApp {
             alarm_manager,
             alarm_form: AlarmForm::default(),
             startup_hint_attempts: 0,
+            control_window: None,
+            control_window_content: None,
             tray_handle,
             tray_receiver,
-            show_menu: false,
-            show_alarm_panel: false,
         }
     }
 
@@ -206,23 +226,33 @@ impl ClockApp {
         }
     }
 
-    /// Expand the window if the configured size is too small for an overlay.
-    fn expand_for_overlay(&self) -> Task<Message> {
-        let s = self.config.size as f32;
-        let w = s.max(OVERLAY_MIN_WIDTH);
-        let h = s.max(OVERLAY_MIN_HEIGHT);
-        if w > s || h > s {
-            window::oldest().and_then(move |id| window::resize(id, Size::new(w, h)))
-        } else {
-            Task::none()
+    fn open_control_window(&mut self, content: ControlWindowContent) -> Task<Message> {
+        if self.control_window_content == Some(content) {
+            if let Some(id) = self.control_window {
+                return window::gain_focus(id);
+            }
         }
+
+        let mut tasks = Vec::new();
+
+        if let Some(id) = self.control_window.take() {
+            tasks.push(window::close(id));
+        }
+
+        let (id, open_task) = window::open(control_window_settings(content, &self.config));
+
+        self.control_window = Some(id);
+        self.control_window_content = Some(content);
+        tasks.push(open_task.map(Message::ControlWindowOpened));
+
+        Task::batch(tasks)
     }
 
-    /// Restore the window to the configured clock size after an overlay closes.
-    fn restore_window_size(&self) -> Task<Message> {
-        let s = self.config.size as f32;
-        if s < OVERLAY_MIN_WIDTH || s < OVERLAY_MIN_HEIGHT {
-            window::oldest().and_then(move |id| window::resize(id, Size::new(s, s)))
+    fn close_control_window(&mut self) -> Task<Message> {
+        self.control_window_content = None;
+
+        if let Some(id) = self.control_window.take() {
+            window::close(id)
         } else {
             Task::none()
         }
@@ -329,10 +359,7 @@ impl ClockApp {
     }
 
     fn show_alarm_panel_from_tray(&mut self) -> Task<Message> {
-        self.show_menu = false;
-        self.show_alarm_panel = true;
-
-        Task::batch([focus_clock_window(), self.expand_for_overlay()])
+        self.open_control_window(ControlWindowContent::AlarmPanel)
     }
 
     fn poll_tray_commands(&mut self) -> Task<Message> {
@@ -389,6 +416,9 @@ impl ClockApp {
                     window::oldest().and_then(apply_startup_window_hints)
                 }
             }
+            Message::ControlWindowOpened(id) => {
+                Task::batch([apply_control_window_hints(id), window::gain_focus(id)])
+            }
             Message::NoOp => Task::none(),
             Message::Tick => {
                 self.clock_face.update_time();
@@ -401,51 +431,51 @@ impl ClockApp {
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
             Message::StartDrag => {
-                let was_overlay = self.show_menu || self.show_alarm_panel;
-                self.show_menu = false;
-                self.show_alarm_panel = false;
                 let drag = window::oldest().and_then(window::drag);
-                if was_overlay {
-                    Task::batch([self.restore_window_size(), drag])
+                Task::batch([self.close_control_window(), drag])
+            }
+            Message::WindowMoved(id, point) => {
+                if Some(id) == self.control_window {
+                    Task::none()
                 } else {
-                    drag
+                    self.config.position = Some((point.x as i32, point.y as i32));
+                    self.save_config();
+                    Task::none()
                 }
             }
-            Message::WindowMoved(point) => {
-                self.config.position = Some((point.x as i32, point.y as i32));
-                self.save_config();
-                Task::none()
+            Message::WindowCloseRequested(id) => {
+                if Some(id) == self.control_window {
+                    self.control_window = None;
+                    self.control_window_content = None;
+                    Task::none()
+                } else {
+                    Task::done(Message::Quit)
+                }
             }
             Message::ToggleContextMenu => {
-                self.show_alarm_panel = false;
-                self.show_menu = !self.show_menu;
-                if self.show_menu {
-                    self.expand_for_overlay()
+                if self.control_window_content == Some(ControlWindowContent::Menu) {
+                    self.close_control_window()
                 } else {
-                    self.restore_window_size()
+                    self.open_control_window(ControlWindowContent::Menu)
                 }
             }
-            Message::DismissMenu => {
-                self.show_menu = false;
-                self.show_alarm_panel = false;
-                self.restore_window_size()
-            }
+            Message::DismissMenu => self.close_control_window(),
             Message::SetTheme(name) => {
                 self.config.theme = name;
                 self.config.theme_config = None;
                 self.apply_theme();
                 self.save_config();
-                self.show_menu = false;
-                self.restore_window_size()
+                self.close_control_window()
             }
             Message::SetSize(size) => {
                 self.config.size = size;
                 self.save_config();
-                self.show_menu = false;
-                window::oldest().and_then(move |id| {
-                    let s = size as f32;
-                    window::resize(id, Size::new(s, s))
-                })
+                Task::batch([
+                    self.close_control_window(),
+                    window::oldest().and_then(move |id| {
+                        window::resize(id, Size::new(size as f32, size as f32))
+                    }),
+                ])
             }
             Message::ToggleDate => {
                 self.config.show_date = !self.config.show_date;
@@ -465,15 +495,8 @@ impl ClockApp {
                 self.save_config();
                 Task::none()
             }
-            Message::ShowAlarmPanel => {
-                self.show_menu = false;
-                self.show_alarm_panel = true;
-                self.expand_for_overlay()
-            }
-            Message::DismissAlarmPanel => {
-                self.show_alarm_panel = false;
-                self.restore_window_size()
-            }
+            Message::ShowAlarmPanel => self.open_control_window(ControlWindowContent::AlarmPanel),
+            Message::DismissAlarmPanel => self.close_control_window(),
             Message::AddQuickTimer(secs) => {
                 let label = format_timer_label(secs);
                 self.alarm_manager.add_timer(label, secs);
@@ -490,9 +513,7 @@ impl ClockApp {
             Message::EditAlarm(id) => {
                 if let Some(alarm) = self.alarm_manager.get(id) {
                     self.alarm_form.populate_from(alarm);
-                    self.show_menu = false;
-                    self.show_alarm_panel = true;
-                    return self.expand_for_overlay();
+                    return self.open_control_window(ControlWindowContent::AlarmPanel);
                 }
                 Task::none()
             }
@@ -533,37 +554,33 @@ impl ClockApp {
                 if let Some(tray_handle) = self.tray_handle.take() {
                     tray_handle.shutdown();
                 }
-                window::oldest().and_then(window::close)
+                let mut tasks = Vec::new();
+
+                if let Some(id) = self.control_window.take() {
+                    tasks.push(window::close(id));
+                }
+
+                self.control_window_content = None;
+                tasks.push(window::oldest().and_then(window::close));
+
+                Task::batch(tasks)
             }
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
-        let overlay_visible = self.show_alarm_panel || self.show_menu;
-        let clock_size = self.config.size as f32;
-
-        // When an overlay is visible and the window has been expanded,
-        // constrain the clock canvas to its configured size so it doesn't
-        // scale up with the larger window.
-        let clock: Element<'_, Message> = if overlay_visible
-            && (clock_size < OVERLAY_MIN_WIDTH || clock_size < OVERLAY_MIN_HEIGHT)
-        {
-            let sized = canvas(&self.clock_face)
-                .width(clock_size)
-                .height(clock_size);
-            center(sized).width(Fill).height(Fill).into()
+    fn view(&self, window: window::Id) -> Element<'_, Message> {
+        if Some(window) == self.control_window {
+            match self.control_window_content {
+                Some(ControlWindowContent::AlarmPanel) => {
+                    alarm_panel::alarm_panel(&self.alarm_manager, &self.alarm_form)
+                }
+                Some(ControlWindowContent::Menu) => {
+                    ContextMenu::widget(&self.config, &self.alarm_manager)
+                }
+                None => canvas(&self.clock_face).width(Fill).height(Fill).into(),
+            }
         } else {
             canvas(&self.clock_face).width(Fill).height(Fill).into()
-        };
-
-        if self.show_alarm_panel {
-            let panel = alarm_panel::alarm_panel(&self.alarm_manager, &self.alarm_form);
-            stack![clock, panel].into()
-        } else if self.show_menu {
-            let menu = ContextMenu::widget(&self.config, &self.alarm_manager);
-            stack![clock, menu].into()
-        } else {
-            clock
         }
     }
 
@@ -586,9 +603,9 @@ impl ClockApp {
             .map(|_| Message::PollTrayCommands);
 
         // Listen for window move events to save position after dragging.
-        let window_events = window::events().map(|(_, event)| match event {
-            window::Event::Moved(point) => Message::WindowMoved(point),
-            window::Event::CloseRequested => Message::Quit,
+        let window_events = window::events().map(|(id, event)| match event {
+            window::Event::Moved(point) => Message::WindowMoved(id, point),
+            window::Event::CloseRequested => Message::WindowCloseRequested(id),
             _ => Message::NoOp,
         });
 
@@ -627,11 +644,43 @@ fn focus_clock_window() -> Task<Message> {
         .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
 }
 
+fn control_window_settings(content: ControlWindowContent, config: &AppConfig) -> window::Settings {
+    let size = match content {
+        ControlWindowContent::Menu => Size::new(280.0, 360.0),
+        ControlWindowContent::AlarmPanel => Size::new(300.0, 520.0),
+    };
+
+    let position = config
+        .position
+        .map(|(x, y)| {
+            window::Position::Specific(Point::new(x as f32 + config.size as f32 + 24.0, y as f32))
+        })
+        .unwrap_or_default();
+
+    let mut settings = window::Settings {
+        transparent: true,
+        decorations: false,
+        resizable: false,
+        minimizable: false,
+        size,
+        position,
+        level: window::Level::AlwaysOnTop,
+        ..Default::default()
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        settings.platform_specific.application_id = "rust-clock".to_string();
+    }
+
+    settings
+}
+
 fn apply_startup_window_hints(id: window::Id) -> Task<Message> {
     #[cfg(target_os = "linux")]
     {
         window::run(id, |native_window| {
-            if let Err(error) = apply_linux_skip_taskbar_hints(native_window) {
+            if let Err(error) = apply_main_window_hints(native_window) {
                 eprintln!("Failed to apply Linux window hints: {error}");
             }
         })
@@ -645,9 +694,56 @@ fn apply_startup_window_hints(id: window::Id) -> Task<Message> {
     }
 }
 
+fn apply_control_window_hints(id: window::Id) -> Task<Message> {
+    #[cfg(target_os = "linux")]
+    {
+        window::run(id, |native_window| {
+            if let Err(error) = apply_utility_window_hints(native_window) {
+                eprintln!("Failed to apply control window hints: {error}");
+            }
+        })
+        .discard()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = id;
+        Task::none()
+    }
+}
+
 #[cfg(target_os = "linux")]
-fn apply_linux_skip_taskbar_hints(
+fn apply_main_window_hints(
     native_window: &dyn window::Window,
+) -> Result<(), Box<dyn std::error::Error>> {
+    apply_linux_window_hints(
+        native_window,
+        b"_NET_WM_WINDOW_TYPE_UTILITY",
+        &[
+            b"_NET_WM_STATE_SKIP_TASKBAR",
+            b"_NET_WM_STATE_SKIP_PAGER",
+            b"_NET_WM_STATE_BELOW",
+            b"_NET_WM_STATE_STICKY",
+        ],
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn apply_utility_window_hints(
+    native_window: &dyn window::Window,
+) -> Result<(), Box<dyn std::error::Error>> {
+    apply_linux_window_hints(
+        native_window,
+        b"_NET_WM_WINDOW_TYPE_UTILITY",
+        &[b"_NET_WM_STATE_SKIP_TASKBAR", b"_NET_WM_STATE_SKIP_PAGER"],
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn apply_linux_window_hints(
+    native_window: &dyn window::Window,
+    window_type_name: &[u8],
+    state_names: &[&[u8]],
 ) -> Result<(), Box<dyn std::error::Error>> {
     use iced::window::raw_window_handle::RawWindowHandle;
 
@@ -660,11 +756,15 @@ fn apply_linux_skip_taskbar_hints(
         _ => return Ok(()),
     };
 
-    apply_x11_skip_taskbar_hints(window_id)
+    apply_x11_window_hints(window_id, window_type_name, state_names)
 }
 
 #[cfg(target_os = "linux")]
-fn apply_x11_skip_taskbar_hints(window_id: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn apply_x11_window_hints(
+    window_id: u32,
+    window_type_name: &[u8],
+    state_names: &[&[u8]],
+) -> Result<(), Box<dyn std::error::Error>> {
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::{
         AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, PropMode,
@@ -677,18 +777,19 @@ fn apply_x11_skip_taskbar_hints(window_id: u32) -> Result<(), Box<dyn std::error
 
     let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
     let net_wm_window_type = intern_atom(&conn, b"_NET_WM_WINDOW_TYPE")?;
-    let skip_taskbar = intern_atom(&conn, b"_NET_WM_STATE_SKIP_TASKBAR")?;
-    let skip_pager = intern_atom(&conn, b"_NET_WM_STATE_SKIP_PAGER")?;
-    let below = intern_atom(&conn, b"_NET_WM_STATE_BELOW")?;
-    let sticky = intern_atom(&conn, b"_NET_WM_STATE_STICKY")?;
-    let utility = intern_atom(&conn, b"_NET_WM_WINDOW_TYPE_UTILITY")?;
+    let window_type = intern_atom(&conn, window_type_name)?;
+    let states: Result<Vec<u32>, Box<dyn std::error::Error>> = state_names
+        .iter()
+        .map(|state| intern_atom(&conn, state))
+        .collect();
+    let states = states?;
 
     conn.change_property32(
         PropMode::REPLACE,
         window_id,
         net_wm_window_type,
         AtomEnum::ATOM,
-        &[utility],
+        &[window_type],
     )?;
 
     conn.change_property32(
@@ -696,10 +797,10 @@ fn apply_x11_skip_taskbar_hints(window_id: u32) -> Result<(), Box<dyn std::error
         window_id,
         net_wm_state,
         AtomEnum::ATOM,
-        &[skip_taskbar, skip_pager, below, sticky],
+        &states,
     )?;
 
-    for atom in [skip_taskbar, skip_pager, below, sticky] {
+    for atom in states {
         let event = ClientMessageEvent::new(32, window_id, net_wm_state, [1, atom, 0, 0, 0]);
 
         conn.send_event(
