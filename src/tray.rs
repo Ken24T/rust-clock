@@ -28,7 +28,7 @@ mod linux {
 
     impl SystemTrayHandle {
         pub fn shutdown(self) {
-            self.handle.shutdown().wait();
+            let _ = self.handle.shutdown();
         }
     }
 

@@ -36,6 +36,20 @@ pub fn main() -> iced::Result {
         .map(|(x, y)| window::Position::Specific(Point::new(x as f32, y as f32)))
         .unwrap_or_default();
 
+    let mut window_settings = window::Settings {
+        transparent: true,
+        decorations: false,
+        size: Size::new(size, size),
+        position,
+        level: window::Level::AlwaysOnBottom,
+        ..Default::default()
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        window_settings.platform_specific.application_id = "rust-clock".to_string();
+    }
+
     iced::application(
         move || (ClockApp::new(config.clone()), Task::none()),
         ClockApp::update,
@@ -43,13 +57,7 @@ pub fn main() -> iced::Result {
     )
     .title("Rust Clock")
     .subscription(ClockApp::subscription)
-    .window(window::Settings {
-        transparent: true,
-        decorations: false,
-        size: Size::new(size, size),
-        position,
-        ..Default::default()
-    })
+    .window(window_settings)
     .theme(clock_theme)
     .antialiasing(true)
     .run()
@@ -76,6 +84,7 @@ struct ClockApp {
     config: AppConfig,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
+    startup_hints_applied: bool,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
     show_menu: bool,
@@ -87,10 +96,10 @@ struct ClockApp {
 pub enum Message {
     /// Fired periodically to update the clock hands.
     Tick,
+    /// No state change is needed for this event.
+    NoOp,
     /// Poll pending tray actions.
     PollTrayCommands,
-    /// Window has opened and is ready for platform-specific configuration.
-    WindowOpened(window::Id),
     /// Left-click: initiate OS-level window drag.
     StartDrag,
     /// Window moved to a new position — save it.
@@ -160,6 +169,7 @@ impl ClockApp {
             config,
             alarm_manager,
             alarm_form: AlarmForm::default(),
+            startup_hints_applied: false,
             tray_handle,
             tray_receiver,
             show_menu: false,
@@ -360,6 +370,7 @@ impl ClockApp {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::NoOp => Task::none(),
             Message::Tick => {
                 self.clock_face.update_time();
                 // Check alarms on each tick.
@@ -367,10 +378,14 @@ impl ClockApp {
                 for alarm in fired {
                     fire_alarm(&alarm);
                 }
-                Task::none()
+                if self.startup_hints_applied {
+                    Task::none()
+                } else {
+                    self.startup_hints_applied = true;
+                    window::oldest().and_then(apply_startup_window_hints)
+                }
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
-            Message::WindowOpened(id) => apply_startup_window_hints(id),
             Message::StartDrag => {
                 let was_overlay = self.show_menu || self.show_alarm_panel;
                 self.show_menu = false;
@@ -551,27 +566,29 @@ impl ClockApp {
         // Listen for window move events to save position after dragging.
         let window_events = window::events().map(|(_, event)| match event {
             window::Event::Moved(point) => Message::WindowMoved(point),
-            _ => Message::Tick, // Ignore other window events
+            window::Event::CloseRequested => Message::Quit,
+            _ => Message::NoOp,
         });
 
-        let window_open_events = window::open_events().map(Message::WindowOpened);
-
-        // Listen for Escape key to dismiss the context menu.
+        // Listen for Escape to dismiss overlays and Ctrl+Q to quit.
         let keyboard_events = keyboard::listen().map(|event| match event {
             keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..
             } => Message::DismissMenu,
-            _ => Message::Tick,
+            keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                physical_key,
+                repeat,
+                ..
+            } if !repeat && modifiers.command() && key.to_latin(physical_key) == Some('q') => {
+                Message::Quit
+            }
+            _ => Message::NoOp,
         });
 
-        Subscription::batch([
-            tick,
-            tray_events,
-            window_events,
-            window_open_events,
-            keyboard_events,
-        ])
+        Subscription::batch([tick, tray_events, window_events, keyboard_events])
     }
 }
 
@@ -631,18 +648,30 @@ fn apply_x11_skip_taskbar_hints(window_id: u32) -> Result<(), Box<dyn std::error
     let root = conn.setup().roots[screen_num].root;
 
     let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
+    let net_wm_window_type = intern_atom(&conn, b"_NET_WM_WINDOW_TYPE")?;
     let skip_taskbar = intern_atom(&conn, b"_NET_WM_STATE_SKIP_TASKBAR")?;
     let skip_pager = intern_atom(&conn, b"_NET_WM_STATE_SKIP_PAGER")?;
+    let below = intern_atom(&conn, b"_NET_WM_STATE_BELOW")?;
+    let sticky = intern_atom(&conn, b"_NET_WM_STATE_STICKY")?;
+    let utility = intern_atom(&conn, b"_NET_WM_WINDOW_TYPE_UTILITY")?;
+
+    conn.change_property32(
+        PropMode::REPLACE,
+        window_id,
+        net_wm_window_type,
+        AtomEnum::ATOM,
+        &[utility],
+    )?;
 
     conn.change_property32(
         PropMode::REPLACE,
         window_id,
         net_wm_state,
         AtomEnum::ATOM,
-        &[skip_taskbar, skip_pager],
+        &[skip_taskbar, skip_pager, below, sticky],
     )?;
 
-    for atom in [skip_taskbar, skip_pager] {
+    for atom in [skip_taskbar, skip_pager, below, sticky] {
         let event = ClientMessageEvent::new(32, window_id, net_wm_state, [1, atom, 0, 0, 0]);
 
         conn.send_event(

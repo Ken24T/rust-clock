@@ -2,6 +2,7 @@
 Name=Rust Clock
 Comment=A classic analog clock desktop widget
 Exec=rust-clock
+StartupWMClass=rust-clock
 Icon=clock
 Type=Application
 Categories=Utility;Clock;
