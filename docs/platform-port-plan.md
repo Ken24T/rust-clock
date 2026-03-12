@@ -260,6 +260,40 @@ It delivered:
 - tray startup routed through the platform boundary
 - explicit capability reporting for unsupported platform features
 
+## Phase 3 — Explicit Windows Baseline
+
+### Intent
+
+Turn Windows from a passive fallback target into an explicit early-runtime baseline with deliberate default window behaviour, while preserving Linux semantics.
+
+### Slices
+
+1. Move initial window level policy fully under platform ownership
+2. Define the first Windows baseline window behaviour in code and docs
+3. Refresh user-facing platform support wording to match the new baseline
+
+### Slice 1 Status
+
+Completed by removing Linux-style window levels from the shared app defaults and making each platform implementation set its own main and control window levels.
+
+### Slice 2 Status
+
+Completed by making Windows use a normal floating main window and always-on-top control windows instead of inheriting Linux desklet-style defaults.
+
+### Slice 3 Status
+
+Completed by updating the platform-support documentation to describe Windows as an early baseline build/runtime target rather than an unspecified non-Linux fallback.
+
+## Phase 3 Summary
+
+Phase 3 is complete.
+
+It delivered:
+
+- platform-owned initial window levels
+- an explicit Windows default window policy
+- updated platform-support wording for the current cross-platform state
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.

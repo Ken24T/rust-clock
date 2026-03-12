@@ -43,10 +43,12 @@ pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receive
 }
 
 pub fn configure_main_window_settings(settings: &mut window::Settings) {
+    settings.level = window::Level::AlwaysOnBottom;
     settings.platform_specific.application_id = "rust-clock".to_string();
 }
 
 pub fn configure_control_window_settings(settings: &mut window::Settings) {
+    settings.level = window::Level::AlwaysOnTop;
     settings.platform_specific.application_id = "rust-clock".to_string();
 }
 

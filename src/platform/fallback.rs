@@ -23,9 +23,13 @@ pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receive
     None
 }
 
-pub fn configure_main_window_settings(_settings: &mut window::Settings) {}
+pub fn configure_main_window_settings(settings: &mut window::Settings) {
+    settings.level = window::Level::Normal;
+}
 
-pub fn configure_control_window_settings(_settings: &mut window::Settings) {}
+pub fn configure_control_window_settings(settings: &mut window::Settings) {
+    settings.level = window::Level::AlwaysOnTop;
+}
 
 pub fn apply_startup_window_hints(id: window::Id) -> Task<crate::Message> {
     let _ = id;

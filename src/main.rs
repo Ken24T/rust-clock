@@ -1,4 +1,4 @@
-//! Rust Clock — a classic analog clock desklet for Linux.
+//! Rust Clock — a classic analog clock desklet with platform-specific desktop integration.
 //!
 //! Entry point: sets up the iced application with a transparent,
 //! borderless window and a ticking subscription.
@@ -59,7 +59,7 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
         decorations: false,
         size: Size::new(size, size),
         position,
-        level: window::Level::AlwaysOnBottom,
+        level: window::Level::Normal,
         ..Default::default()
     };
 
@@ -675,7 +675,7 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
         minimizable: false,
         size,
         position,
-        level: window::Level::AlwaysOnTop,
+        level: window::Level::Normal,
         ..Default::default()
     };
 
