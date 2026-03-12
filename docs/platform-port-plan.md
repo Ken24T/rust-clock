@@ -214,6 +214,28 @@ The current branch workflow for this effort is:
 - the branch should only be pushed after the whole phase is complete
 - phase completion should include a brief summary of what the phase delivered
 
+## Phase 2 — Narrow Service Extraction
+
+### Intent
+
+Move platform-sensitive behaviour behind explicit platform services without changing intended Linux behaviour.
+
+### Slices
+
+1. Extract notification delivery behind a platform module
+2. Extract shared window-policy hooks behind a platform module
+3. Move Linux native hint internals fully into the Linux platform implementation
+4. Adapt tray startup behind the same platform-oriented boundary
+5. Introduce explicit capability reporting for unsupported features
+
+### Slice 1 Status
+
+Completed.
+
+### Slice 2 Status
+
+Completed by moving shared window setting adjustments and post-open hint hooks into the platform module while preserving the existing Linux X11 behaviour.
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.
