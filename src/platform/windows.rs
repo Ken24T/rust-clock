@@ -50,8 +50,37 @@ pub fn apply_control_window_hints(id: window::Id) -> Task<crate::Message> {
 }
 
 fn windows_toast_app_id() -> String {
-    std::env::var("RUST_CLOCK_WINDOWS_AUMID")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    select_windows_toast_app_id(std::env::var("RUST_CLOCK_WINDOWS_AUMID").ok())
+}
+
+fn select_windows_toast_app_id(value: Option<String>) -> String {
+    value
+        .filter(|candidate| !candidate.trim().is_empty())
         .unwrap_or_else(|| Toast::POWERSHELL_APP_ID.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_windows_toast_app_id, Toast};
+
+    #[test]
+    fn uses_explicit_aumid_when_present() {
+        assert_eq!(
+            select_windows_toast_app_id(Some("RustClock.Test".to_string())),
+            "RustClock.Test"
+        );
+    }
+
+    #[test]
+    fn falls_back_for_empty_aumid() {
+        assert_eq!(
+            select_windows_toast_app_id(Some("   ".to_string())),
+            Toast::POWERSHELL_APP_ID
+        );
+    }
+
+    #[test]
+    fn falls_back_when_aumid_missing() {
+        assert_eq!(select_windows_toast_app_id(None), Toast::POWERSHELL_APP_ID);
+    }
 }

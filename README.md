@@ -12,7 +12,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Four built-in themes: Classic, Dark, Minimal, Transparent
 - Optional custom theme configuration through TOML
 - Alarm and timer management panel with create, edit, delete, and quick presets
-- Linux system tray integration with focus, quick timer, alarm panel, and quit actions
+- Platform tray integration with focus, quick timer, alarm panel, and quit actions where supported
 - Persistent configuration and alarm storage in the XDG config directory
 
 ## Platform Support

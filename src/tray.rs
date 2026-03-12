@@ -302,24 +302,22 @@ mod windows {
             }
 
             while let Ok(event) = MenuEvent::receiver().try_recv() {
-                match event.id.as_ref() {
-                    MENU_ID_SHOW_CLOCK => {
-                        let _ = self.command_sender.send(TrayCommand::FocusClock);
-                    }
-                    MENU_ID_SHOW_ALARMS => {
-                        let _ = self.command_sender.send(TrayCommand::ShowAlarmPanel);
-                    }
-                    MENU_ID_QUIT => {
-                        let _ = self.command_sender.send(TrayCommand::Quit);
-                    }
-                    id if id.starts_with(MENU_ID_TIMER_PREFIX) => {
-                        if let Ok(secs) = id[MENU_ID_TIMER_PREFIX.len()..].parse::<u64>() {
-                            let _ = self.command_sender.send(TrayCommand::AddQuickTimer(secs));
-                        }
-                    }
-                    _ => {}
+                if let Some(command) = tray_command_from_menu_id(event.id.as_ref()) {
+                    let _ = self.command_sender.send(command);
                 }
             }
+        }
+    }
+
+    fn tray_command_from_menu_id(id: &str) -> Option<TrayCommand> {
+        match id {
+            MENU_ID_SHOW_CLOCK => Some(TrayCommand::FocusClock),
+            MENU_ID_SHOW_ALARMS => Some(TrayCommand::ShowAlarmPanel),
+            MENU_ID_QUIT => Some(TrayCommand::Quit),
+            _ => id
+                .strip_prefix(MENU_ID_TIMER_PREFIX)
+                .and_then(|secs| secs.parse::<u64>().ok())
+                .map(TrayCommand::AddQuickTimer),
         }
     }
 
@@ -351,6 +349,50 @@ mod windows {
     }
 
     pub use SystemTrayHandle as HandleType;
+
+    #[cfg(test)]
+    mod tests {
+        use super::{tray_command_from_menu_id, TrayCommand};
+
+        #[test]
+        fn maps_show_clock_menu_id() {
+            assert_eq!(
+                tray_command_from_menu_id("show-clock"),
+                Some(TrayCommand::FocusClock)
+            );
+        }
+
+        #[test]
+        fn maps_show_alarms_menu_id() {
+            assert_eq!(
+                tray_command_from_menu_id("show-alarms"),
+                Some(TrayCommand::ShowAlarmPanel)
+            );
+        }
+
+        #[test]
+        fn maps_quit_menu_id() {
+            assert_eq!(tray_command_from_menu_id("quit"), Some(TrayCommand::Quit));
+        }
+
+        #[test]
+        fn maps_quick_timer_menu_id() {
+            assert_eq!(
+                tray_command_from_menu_id("timer-600"),
+                Some(TrayCommand::AddQuickTimer(600))
+            );
+        }
+
+        #[test]
+        fn rejects_invalid_timer_menu_id() {
+            assert_eq!(tray_command_from_menu_id("timer-nope"), None);
+        }
+
+        #[test]
+        fn rejects_unknown_menu_id() {
+            assert_eq!(tray_command_from_menu_id("something-else"), None);
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]

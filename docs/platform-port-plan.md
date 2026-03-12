@@ -367,6 +367,68 @@ It delivered:
 - a dedicated Win32 tray thread that keeps tray state out of shared app logic
 - Windows tray capability enabled in the platform capability model
 
+## Phase 6 — Windows Integration Hardening
+
+### Intent
+
+Harden the new Windows integrations with deterministic helper tests and a concrete manual validation checklist, without changing intended runtime behaviour.
+
+### Slices
+
+1. Extract Windows-specific helper logic into directly testable functions
+2. Add Windows-targeted unit tests for tray command mapping and toast AppUserModelID selection
+3. Document a concrete Windows manual validation checklist for the current runtime baseline
+
+### Slice 1 Status
+
+Completed by extracting Windows tray menu ID parsing and Windows toast AppUserModelID selection into focused helper functions.
+
+### Slice 2 Status
+
+Completed by adding Windows-targeted unit tests around those helpers so the Windows platform layer has deterministic coverage for its key non-UI branches.
+
+### Slice 3 Status
+
+Completed by documenting the Windows manual validation checklist below.
+
+## Phase 6 Summary
+
+Phase 6 is complete.
+
+It delivered:
+
+- testable Windows helper functions for tray command mapping and toast AppUserModelID selection
+- Windows-targeted unit coverage for those helpers
+- a concrete manual validation checklist for the current Windows runtime baseline
+
+## Windows Validation Checklist
+
+This checklist should be used on a live Windows session after Windows-sensitive phases.
+
+### Startup and windowing
+
+- app launches successfully
+- main clock window is transparent and borderless
+- main clock window starts as a normal floating widget
+- clock window can be dragged and new position is saved
+- settings window opens and stays usable
+- alarms/timers window opens and stays usable
+
+### Notifications
+
+- a fired alarm shows a Windows toast notification
+- `RUST_CLOCK_WINDOWS_AUMID` override works when provided
+- missing or blank `RUST_CLOCK_WINDOWS_AUMID` still falls back to the development toast path
+
+### Tray
+
+- tray icon appears
+- left-click on the tray focuses the clock
+- tray menu opens
+- tray "Alarms & Timers" opens the panel
+- tray quick timers create the expected timers
+- tray quit exits the app cleanly
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.
