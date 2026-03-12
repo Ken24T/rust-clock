@@ -294,6 +294,40 @@ It delivered:
 - an explicit Windows default window policy
 - updated platform-support wording for the current cross-platform state
 
+## Phase 4 — Windows Notification Baseline
+
+### Intent
+
+Restore native notification delivery on Windows without disturbing Linux behaviour, while keeping the desktop-app identity limitation explicit.
+
+### Slices
+
+1. Add a Windows-only toast notification dependency
+2. Implement Windows toast delivery behind the existing platform notification service
+3. Document the temporary AppUserModelID fallback and how packaging can override it later
+
+### Slice 1 Status
+
+Completed by adding a Windows-target-only toast notification dependency instead of introducing a cross-platform notification crate into the shared dependency set.
+
+### Slice 2 Status
+
+Completed by implementing Windows toast delivery in the Windows platform module and marking the notifications capability as available there.
+
+### Slice 3 Status
+
+Completed by documenting the default desktop-app identity fallback and the `RUST_CLOCK_WINDOWS_AUMID` override for future packaged builds.
+
+## Phase 4 Summary
+
+Phase 4 is complete.
+
+It delivered:
+
+- Windows toast notification support behind the existing platform seam
+- Windows notifications capability enabled in the platform capability model
+- an explicit path for future packaged builds to supply a real Windows AppUserModelID
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.

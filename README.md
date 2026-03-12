@@ -23,7 +23,8 @@ Rust Clock is still Linux-first, but the project is now being structured for a s
 - Linux applies X11 window hints to stay below other windows, skip the taskbar, skip the pager, and stay sticky across workspaces
 - Wayland runs without the X11-specific hinting, but dedicated layer-shell support is not implemented yet
 - Windows currently uses a simpler floating-widget model: transparent borderless main window, movable clock, and always-on-top control windows
-- Windows tray integration, native notifications, and Linux-style desktop-layer semantics are not implemented yet
+- Windows toast notifications are available through the platform layer
+- Windows tray integration and Linux-style desktop-layer semantics are not implemented yet
 - The tray icon is available today only where Linux StatusNotifier/AppIndicator support is present
 
 ## Build And Run
@@ -33,6 +34,7 @@ Rust Clock is still Linux-first, but the project is now being structured for a s
 - Rust stable toolchain
 - A Linux desktop session for the full reference experience, or Windows for the early floating-widget baseline
 - `notify-send` available on Linux if you want desktop alarm notifications
+- Optional on Windows: `RUST_CLOCK_WINDOWS_AUMID` if you want to provide a packaged AppUserModelID instead of the development fallback used for toast notifications
 
 ### Commands
 
@@ -135,8 +137,9 @@ User-facing and supporting documents now live under `docs/` unless they are part
 - No on-face alarm summary or hover callout yet
 - No dedicated settings dialog beyond the current control windows
 - Wayland desktop-layer integration is still pending
-- Windows native tray integration and notifications are still pending
+- Windows native tray integration is still pending
 - Linux remains the only platform with desklet-style taskbar/pager/workspace integration
+- Windows notifications currently use a development-friendly AppUserModelID fallback unless `RUST_CLOCK_WINDOWS_AUMID` is set by packaging or the runtime environment
 
 ## Licence
 
