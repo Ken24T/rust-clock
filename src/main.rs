@@ -19,6 +19,10 @@ use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 const OVERLAY_MIN_WIDTH: f32 = 300.0;
 /// Minimum window height when an overlay is visible.
 const OVERLAY_MIN_HEIGHT: f32 = 500.0;
+/// Number of early ticks during which Linux window hints are retried.
+const STARTUP_HINT_ATTEMPTS: u8 = 20;
+/// Retry interval for Linux startup window hints.
+const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
 use uuid::Uuid;
 
 use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertAction};
@@ -51,7 +55,12 @@ pub fn main() -> iced::Result {
     }
 
     iced::application(
-        move || (ClockApp::new(config.clone()), Task::none()),
+        move || {
+            (
+                ClockApp::new(config.clone()),
+                Task::done(Message::ApplyStartupHints),
+            )
+        },
         ClockApp::update,
         ClockApp::view,
     )
@@ -84,7 +93,7 @@ struct ClockApp {
     config: AppConfig,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
-    startup_hints_applied: bool,
+    startup_hint_attempts: u8,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
     show_menu: bool,
@@ -96,6 +105,8 @@ struct ClockApp {
 pub enum Message {
     /// Fired periodically to update the clock hands.
     Tick,
+    /// Retry Linux startup window hints.
+    ApplyStartupHints,
     /// No state change is needed for this event.
     NoOp,
     /// Poll pending tray actions.
@@ -169,7 +180,7 @@ impl ClockApp {
             config,
             alarm_manager,
             alarm_form: AlarmForm::default(),
-            startup_hints_applied: false,
+            startup_hint_attempts: 0,
             tray_handle,
             tray_receiver,
             show_menu: false,
@@ -370,6 +381,14 @@ impl ClockApp {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::ApplyStartupHints => {
+                if self.startup_hint_attempts >= STARTUP_HINT_ATTEMPTS {
+                    Task::none()
+                } else {
+                    self.startup_hint_attempts += 1;
+                    window::oldest().and_then(apply_startup_window_hints)
+                }
+            }
             Message::NoOp => Task::none(),
             Message::Tick => {
                 self.clock_face.update_time();
@@ -378,12 +397,7 @@ impl ClockApp {
                 for alarm in fired {
                     fire_alarm(&alarm);
                 }
-                if self.startup_hints_applied {
-                    Task::none()
-                } else {
-                    self.startup_hints_applied = true;
-                    window::oldest().and_then(apply_startup_window_hints)
-                }
+                Task::none()
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
             Message::StartDrag => {
@@ -560,6 +574,14 @@ impl ClockApp {
             std::time::Duration::from_secs(1)
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
+        let startup_hint_retries = if self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS {
+            iced::time::every(std::time::Duration::from_millis(
+                STARTUP_HINT_RETRY_INTERVAL_MS,
+            ))
+            .map(|_| Message::ApplyStartupHints)
+        } else {
+            Subscription::none()
+        };
         let tray_events = iced::time::every(std::time::Duration::from_millis(150))
             .map(|_| Message::PollTrayCommands);
 
@@ -588,7 +610,13 @@ impl ClockApp {
             _ => Message::NoOp,
         });
 
-        Subscription::batch([tick, tray_events, window_events, keyboard_events])
+        Subscription::batch([
+            tick,
+            startup_hint_retries,
+            tray_events,
+            window_events,
+            keyboard_events,
+        ])
     }
 }
 

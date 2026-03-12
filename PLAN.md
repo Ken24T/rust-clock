@@ -1,6 +1,6 @@
 # Rust Analog Clock Desklet — Implementation Plan
 
-## Current Version: 0.6.2
+## Current Version: 0.6.3
 
 **Target:** A highly customisable, moveable analog clock that sits on the Linux
 desktop as a transparent widget. Primary DE: Cinnamon (Linux Mint). Deployed as
