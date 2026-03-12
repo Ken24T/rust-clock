@@ -11,7 +11,7 @@ pub fn capabilities() -> PlatformCapabilities {
         notifications: true,
         desktop_window_hints: false,
         sticky_workspace: false,
-        skip_taskbar: false,
+        skip_taskbar: true,
     }
 }
 
@@ -33,10 +33,12 @@ pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receive
 
 pub fn configure_main_window_settings(settings: &mut window::Settings) {
     settings.level = window::Level::Normal;
+    settings.platform_specific.skip_taskbar = true;
 }
 
 pub fn configure_control_window_settings(settings: &mut window::Settings) {
     settings.level = window::Level::AlwaysOnTop;
+    settings.platform_specific.skip_taskbar = true;
 }
 
 pub fn apply_startup_window_hints(id: window::Id) -> Task<crate::Message> {
