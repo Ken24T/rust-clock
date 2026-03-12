@@ -22,6 +22,7 @@ A Project Profile defines:
 - How to run **lint/static checks**
 - How to run **tests**
 - How to run **build/compile** (if applicable)
+- Whether a separate **release build** exists and when it should be used
 - Where/how to **bump version**
 - Tagging policy
 - Documentation impact rules and which docs must be reviewed for different change types
@@ -167,7 +168,9 @@ Run repo test commands per Project Profile. Stop on failure.
 
 ### 3. Problems
 
-Ensure lint, build, and test diagnostics are clean (zero warnings if enforced).
+Ensure lint, configured build, and test diagnostics are clean (zero warnings if enforced).
+
+If the repo distinguishes between a normal build and a release build, the normal build is the default gate. Release builds should only run when explicitly required by repo policy or user instruction, such as installation, packaging, or deployment work.
 
 ---
 

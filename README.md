@@ -1,6 +1,6 @@
 # Rust Clock
 
-Rust Clock is a Linux desktop analog clock desklet built with Rust and [iced](https://iced.rs). It runs as a transparent, borderless window with desktop-style behaviour and also includes alarms, timers, and tray controls.
+Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs). Linux remains the reference platform today, with transparent desklet-style behaviour, alarms, timers, and tray controls. Windows is now treated as an early baseline target with a simpler floating-widget interpretation.
 
 ## Current Functionality
 
@@ -12,25 +12,30 @@ Rust Clock is a Linux desktop analog clock desklet built with Rust and [iced](ht
 - Four built-in themes: Classic, Dark, Minimal, Transparent
 - Optional custom theme configuration through TOML
 - Alarm and timer management panel with create, edit, delete, and quick presets
-- Linux system tray integration with focus, quick timer, alarm panel, and quit actions
+- Platform tray integration with focus, quick timer, alarm panel, and quit actions where supported
 - Persistent configuration and alarm storage in the XDG config directory
 
 ## Platform Support
 
-Rust Clock is currently Linux-focused.
+Rust Clock is still Linux-first, but the project is now being structured for a safe Windows/Linux split.
 
-- X11 is the best-supported environment today
-- The app applies X11 window hints to stay below other windows, skip the taskbar, skip the pager, and stay sticky across workspaces
+- Linux on X11 is the reference implementation today
+- Linux applies X11 window hints to stay below other windows, skip the taskbar, skip the pager, and stay sticky across workspaces
 - Wayland runs without the X11-specific hinting, but dedicated layer-shell support is not implemented yet
-- The tray icon is available only where StatusNotifier/AppIndicator support is present
+- Windows currently uses a simpler floating-widget model: transparent borderless main window, movable clock, and always-on-top control windows
+- Windows toast notifications are available through the platform layer
+- Windows tray support is available for focus, alarms panel, quick timers, and quit
+- Linux-style desktop-layer semantics are not implemented on Windows
+- Tray support is currently implemented on Linux and Windows through separate platform backends
 
 ## Build And Run
 
 ### Prerequisites
 
 - Rust stable toolchain
-- A Linux desktop session
-- `notify-send` available on the system if you want desktop alarm notifications
+- A Linux desktop session for the full reference experience, or Windows for the early floating-widget baseline
+- `notify-send` available on Linux if you want desktop alarm notifications
+- Optional on Windows: `RUST_CLOCK_WINDOWS_AUMID` if you want to provide a packaged AppUserModelID instead of the development fallback used for toast notifications
 
 ### Commands
 
@@ -133,6 +138,9 @@ User-facing and supporting documents now live under `docs/` unless they are part
 - No on-face alarm summary or hover callout yet
 - No dedicated settings dialog beyond the current control windows
 - Wayland desktop-layer integration is still pending
+- Windows tray support uses a platform-specific backend and should be treated as an early baseline rather than final polished packaging behaviour
+- Linux remains the only platform with desklet-style taskbar/pager/workspace integration
+- Windows notifications currently use a development-friendly AppUserModelID fallback unless `RUST_CLOCK_WINDOWS_AUMID` is set by packaging or the runtime environment
 
 ## Licence
 

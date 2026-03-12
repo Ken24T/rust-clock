@@ -1,13 +1,20 @@
-//! Rust Clock — a classic analog clock desklet for Linux.
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
+//! Rust Clock — a classic analog clock desklet with platform-specific desktop integration.
 //!
 //! Entry point: sets up the iced application with a transparent,
 //! borderless window and a ticking subscription.
 
 mod alarm;
 mod alarm_panel;
+mod app_icon;
 mod clock_face;
 mod config;
 mod context_menu;
+mod platform;
 mod theme;
 mod tray;
 
@@ -25,7 +32,7 @@ use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertActio
 use clock_face::ClockFace;
 use config::AppConfig;
 use context_menu::ContextMenu;
-use tray::{start_system_tray, SystemTrayHandle, TrayCommand};
+use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();
@@ -53,19 +60,17 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
         .map(|(x, y)| window::Position::Specific(Point::new(x as f32, y as f32)))
         .unwrap_or_default();
 
-    let window_settings = window::Settings {
+    let mut window_settings = window::Settings {
         transparent: true,
         decorations: false,
         size: Size::new(size, size),
         position,
-        level: window::Level::AlwaysOnBottom,
+        level: window::Level::Normal,
+        icon: app_window_icon(),
         ..Default::default()
     };
 
-    #[cfg(target_os = "linux")]
-    {
-        window_settings.platform_specific.application_id = "rust-clock".to_string();
-    }
+    platform::configure_main_window_settings(&mut window_settings);
 
     window_settings
 }
@@ -107,6 +112,7 @@ enum ControlWindowContent {
 struct ClockApp {
     clock_face: ClockFace,
     config: AppConfig,
+    capabilities: platform::PlatformCapabilities,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
     startup_hint_attempts: u8,
@@ -184,10 +190,15 @@ pub enum Message {
 impl ClockApp {
     fn new(config: AppConfig) -> Self {
         let theme = config.resolved_theme();
+        let capabilities = platform::capabilities();
         let alarm_manager = AlarmManager::load();
-        let (tray_handle, tray_receiver) = match start_system_tray() {
-            Some((tray_handle, tray_receiver)) => (Some(tray_handle), Some(tray_receiver)),
-            None => (None, None),
+        let (tray_handle, tray_receiver) = if capabilities.system_tray {
+            match start_system_tray() {
+                Some((tray_handle, tray_receiver)) => (Some(tray_handle), Some(tray_receiver)),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
         };
 
         Self {
@@ -198,6 +209,7 @@ impl ClockApp {
                 config.show_seconds,
             ),
             config,
+            capabilities,
             alarm_manager,
             alarm_form: AlarmForm::default(),
             startup_hint_attempts: 0,
@@ -591,7 +603,9 @@ impl ClockApp {
             std::time::Duration::from_secs(1)
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
-        let startup_hint_retries = if self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS {
+        let startup_hint_retries = if self.capabilities.desktop_window_hints
+            && self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS
+        {
             iced::time::every(std::time::Duration::from_millis(
                 STARTUP_HINT_RETRY_INTERVAL_MS,
             ))
@@ -599,8 +613,12 @@ impl ClockApp {
         } else {
             Subscription::none()
         };
-        let tray_events = iced::time::every(std::time::Duration::from_millis(150))
-            .map(|_| Message::PollTrayCommands);
+        let tray_events = if self.capabilities.system_tray && self.tray_receiver.is_some() {
+            iced::time::every(std::time::Duration::from_millis(150))
+                .map(|_| Message::PollTrayCommands)
+        } else {
+            Subscription::none()
+        };
 
         // Listen for window move events to save position after dragging.
         let window_events = window::events().map(|(id, event)| match event {
@@ -657,172 +675,38 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
         })
         .unwrap_or_default();
 
-    let settings = window::Settings {
+    let mut settings = window::Settings {
         transparent: true,
         decorations: false,
         resizable: false,
         minimizable: false,
         size,
         position,
-        level: window::Level::AlwaysOnTop,
+        level: window::Level::Normal,
+        icon: app_window_icon(),
         ..Default::default()
     };
 
-    #[cfg(target_os = "linux")]
-    {
-        settings.platform_specific.application_id = "rust-clock".to_string();
-    }
+    platform::configure_control_window_settings(&mut settings);
 
     settings
 }
 
 fn apply_startup_window_hints(id: window::Id) -> Task<Message> {
-    #[cfg(target_os = "linux")]
-    {
-        window::run(id, |native_window| {
-            if let Err(error) = apply_main_window_hints(native_window) {
-                eprintln!("Failed to apply Linux window hints: {error}");
-            }
-        })
-        .discard()
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = id;
-        Task::none()
-    }
+    platform::apply_startup_window_hints(id)
 }
 
 fn apply_control_window_hints(id: window::Id) -> Task<Message> {
-    #[cfg(target_os = "linux")]
-    {
-        window::run(id, |native_window| {
-            if let Err(error) = apply_utility_window_hints(native_window) {
-                eprintln!("Failed to apply control window hints: {error}");
-            }
-        })
-        .discard()
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = id;
-        Task::none()
-    }
+    platform::apply_control_window_hints(id)
 }
 
-#[cfg(target_os = "linux")]
-fn apply_main_window_hints(
-    native_window: &dyn window::Window,
-) -> Result<(), Box<dyn std::error::Error>> {
-    apply_linux_window_hints(
-        native_window,
-        b"_NET_WM_WINDOW_TYPE_UTILITY",
-        &[
-            b"_NET_WM_STATE_SKIP_TASKBAR",
-            b"_NET_WM_STATE_SKIP_PAGER",
-            b"_NET_WM_STATE_BELOW",
-            b"_NET_WM_STATE_STICKY",
-        ],
+fn app_window_icon() -> Option<window::Icon> {
+    window::icon::from_rgba(
+        app_icon::clock_face_icon_rgba(app_icon::CLOCK_FACE_ICON_SIZE),
+        app_icon::CLOCK_FACE_ICON_SIZE,
+        app_icon::CLOCK_FACE_ICON_SIZE,
     )
-}
-
-#[cfg(target_os = "linux")]
-fn apply_utility_window_hints(
-    native_window: &dyn window::Window,
-) -> Result<(), Box<dyn std::error::Error>> {
-    apply_linux_window_hints(
-        native_window,
-        b"_NET_WM_WINDOW_TYPE_UTILITY",
-        &[b"_NET_WM_STATE_SKIP_TASKBAR", b"_NET_WM_STATE_SKIP_PAGER"],
-    )
-}
-
-#[cfg(target_os = "linux")]
-fn apply_linux_window_hints(
-    native_window: &dyn window::Window,
-    window_type_name: &[u8],
-    state_names: &[&[u8]],
-) -> Result<(), Box<dyn std::error::Error>> {
-    use iced::window::raw_window_handle::RawWindowHandle;
-
-    let raw_window = native_window.window_handle()?.as_raw();
-    let window_id = match raw_window {
-        RawWindowHandle::Xlib(handle) => u32::try_from(handle.window)
-            .map_err(|_| format!("Xlib window id out of range: {}", handle.window))?,
-        RawWindowHandle::Xcb(handle) => handle.window.get(),
-        RawWindowHandle::Wayland(_) => return Ok(()),
-        _ => return Ok(()),
-    };
-
-    apply_x11_window_hints(window_id, window_type_name, state_names)
-}
-
-#[cfg(target_os = "linux")]
-fn apply_x11_window_hints(
-    window_id: u32,
-    window_type_name: &[u8],
-    state_names: &[&[u8]],
-) -> Result<(), Box<dyn std::error::Error>> {
-    use x11rb::connection::Connection;
-    use x11rb::protocol::xproto::{
-        AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, PropMode,
-    };
-    use x11rb::rust_connection::RustConnection;
-    use x11rb::wrapper::ConnectionExt as _;
-
-    let (conn, screen_num) = RustConnection::connect(None)?;
-    let root = conn.setup().roots[screen_num].root;
-
-    let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
-    let net_wm_window_type = intern_atom(&conn, b"_NET_WM_WINDOW_TYPE")?;
-    let window_type = intern_atom(&conn, window_type_name)?;
-    let states: Result<Vec<u32>, Box<dyn std::error::Error>> = state_names
-        .iter()
-        .map(|state| intern_atom(&conn, state))
-        .collect();
-    let states = states?;
-
-    conn.change_property32(
-        PropMode::REPLACE,
-        window_id,
-        net_wm_window_type,
-        AtomEnum::ATOM,
-        &[window_type],
-    )?;
-
-    conn.change_property32(
-        PropMode::REPLACE,
-        window_id,
-        net_wm_state,
-        AtomEnum::ATOM,
-        &states,
-    )?;
-
-    for atom in states {
-        let event = ClientMessageEvent::new(32, window_id, net_wm_state, [1, atom, 0, 0, 0]);
-
-        conn.send_event(
-            false,
-            root,
-            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-            event,
-        )?;
-    }
-
-    conn.flush()?;
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn intern_atom(
-    conn: &x11rb::rust_connection::RustConnection,
-    name: &[u8],
-) -> Result<u32, Box<dyn std::error::Error>> {
-    use x11rb::protocol::xproto::ConnectionExt as _;
-
-    Ok(conn.intern_atom(false, name)?.reply()?.atom)
+    .ok()
 }
 
 /// Fire an alarm: play sound and/or send a notification based on alert action.
@@ -856,27 +740,7 @@ fn send_notification(alarm: &alarm::Alarm) {
             }
         }
     };
-    // Use notify-send directly — notify-rust's zbus backend can silently
-    // fail to display on some desktops (e.g. Cinnamon).
-    match std::process::Command::new("notify-send")
-        .arg("--app-name=Rust Clock")
-        .arg("-t")
-        .arg("10000")
-        .arg(&summary)
-        .arg(&body)
-        .spawn()
-    {
-        Ok(mut child) => {
-            std::thread::spawn(move || match child.wait() {
-                Ok(status) if !status.success() => {
-                    eprintln!("notify-send exited with status: {status}");
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Failed to wait for notify-send: {e}"),
-            });
-        }
-        Err(e) => eprintln!("Failed to send notification: {e}"),
-    }
+    platform::send_notification(&summary, &body);
 }
 
 /// Human-friendly label for a timer duration.
