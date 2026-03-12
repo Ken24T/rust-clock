@@ -100,9 +100,9 @@ Layer in pointer-aware detail without weakening the existing drag and context-me
 
 ### Slice Status
 
-Slice 1 is now completed by the current overlay hit-region model for visible summary rows and the compact overflow affordance.
+Slices 1 and 2 are now completed by the current overlay hit-region model and canvas hover-state tracking.
 
-The clock face can now distinguish visible item rows and the overflow suffix as separate logical targets, but the canvas program does not yet store or render hover state.
+The clock face can now distinguish visible item rows and the overflow suffix as separate logical targets, and the canvas state now tracks the hovered target with redraws only when that target changes. The overlay still does not render a hover callout yet.
 
 ### Exit Criteria
 
@@ -163,10 +163,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 2, Slice 2:
+Proceed with Phase 2, Slice 3:
 
-- thread overlay hit detection into the canvas state
-- invalidate only when the hovered target changes
-- keep existing drag and right-click behaviour as the non-hover fallback
+- render a compact hover detail treatment for summary rows
+- decide whether the overflow affordance shows aggregate detail or no detail
+- keep the hover treatment bounded to the face without weakening drag and right-click behaviour
 
-That turns the next slice into hover-state plumbing without coupling it to the final callout rendering.
+That keeps the next slice focused on the actual hover presentation now that the interaction plumbing is in place.

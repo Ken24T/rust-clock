@@ -15,6 +15,8 @@ use crate::alarm::FaceActiveItem;
 use crate::theme::ThemeConfig;
 use crate::Message;
 
+use self::overlay::OverlayHitTarget;
+
 /// Holds the clock state and rendering cache.
 pub struct ClockFace {
     theme: ThemeConfig,
@@ -69,24 +71,55 @@ impl ClockFace {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ClockFaceState {
+    hovered_target: Option<OverlayHitTarget>,
+}
+
+impl ClockFaceState {
+    fn set_hovered_target(&mut self, hovered_target: Option<OverlayHitTarget>) -> bool {
+        if self.hovered_target == hovered_target {
+            false
+        } else {
+            self.hovered_target = hovered_target;
+            true
+        }
+    }
+}
+
 // -- Canvas Program implementation ----------------------------------------
 
 impl canvas::Program<Message> for ClockFace {
-    type State = ();
+    type State = ClockFaceState;
 
     fn update(
         &self,
-        _state: &mut (),
+        state: &mut ClockFaceState,
         event: &Event,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<Action<Message>> {
-        // Only respond to events when the cursor is inside the clock bounds.
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
+
+        if let Event::Mouse(mouse::Event::CursorLeft) = event {
+            return state.set_hovered_target(None).then(Action::request_redraw);
+        }
+
+        if let Event::Mouse(mouse::Event::CursorMoved { .. }) = event {
+            let hovered_target = cursor
+                .position_in(bounds)
+                .and_then(|cursor_pos| self.overlay_hit_target(cursor_pos, centre, radius));
+
+            return state
+                .set_hovered_target(hovered_target)
+                .then(Action::request_redraw);
+        }
+
+        // Only respond to non-hover events when the cursor is inside the clock bounds.
         let cursor_pos = cursor.position_in(bounds)?;
 
         // Check if the click is inside the circular face.
-        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
         let dx = cursor_pos.x - centre.x;
         let dy = cursor_pos.y - centre.y;
         if dx * dx + dy * dy > radius * radius {
@@ -106,7 +139,7 @@ impl canvas::Program<Message> for ClockFace {
 
     fn draw(
         &self,
-        _state: &(),
+        _state: &ClockFaceState,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -126,18 +159,12 @@ impl canvas::Program<Message> for ClockFace {
 
     fn mouse_interaction(
         &self,
-        _state: &(),
+        state: &ClockFaceState,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if let Some(cursor_pos) = cursor.position_in(bounds) {
-            let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-            let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
-
-            if self
-                .overlay_hit_target(cursor_pos, centre, radius)
-                .is_some()
-            {
+        if cursor.is_over(bounds) {
+            if state.hovered_target.is_some() {
                 mouse::Interaction::Pointer
             } else {
                 mouse::Interaction::Grab
@@ -153,7 +180,7 @@ mod tests {
     use crate::alarm::{Alarm, AlarmKind, AlertAction};
     use crate::theme::ThemeConfig;
 
-    use super::ClockFace;
+    use super::{ClockFace, ClockFaceState};
 
     #[test]
     fn set_active_items_replaces_projection() {
@@ -170,5 +197,21 @@ mod tests {
 
         face.set_active_items(vec![second.clone()]);
         assert_eq!(face.active_items(), &[second]);
+    }
+
+    #[test]
+    fn hover_state_reports_only_real_changes() {
+        let mut state = ClockFaceState::default();
+        let hovered = Alarm::new("Tea", AlarmKind::from_now(60), AlertAction::Both)
+            .face_active_item()
+            .expect("active alarm should project onto the clock face");
+
+        assert!(state.set_hovered_target(Some(
+            crate::clock_face::overlay::OverlayHitTarget::SummaryItem(hovered.id)
+        )));
+        assert!(!state.set_hovered_target(Some(
+            crate::clock_face::overlay::OverlayHitTarget::SummaryItem(hovered.id)
+        )));
+        assert!(state.set_hovered_target(None));
     }
 }
