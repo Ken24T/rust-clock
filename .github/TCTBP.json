@@ -12,7 +12,9 @@
     "lint": "cargo clippy -- -D warnings",
     "format": "cargo fmt -- --check",
     "test": "cargo test",
-    "build": "cargo build --release",
+    "build": "cargo build",
+    "releaseBuild": "cargo build --release",
+    "releaseBuildPolicy": "explicit-installation-or-deployment-only",
     "versionFile": "Cargo.toml",
     "versionField": "package.version"
   },
