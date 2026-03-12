@@ -273,12 +273,30 @@ Phase 0 is complete when:
 
 Phase 0 is now defined as complete in planning terms. The remaining action is to validate, commit, and push the phase baseline on this branch.
 
+## Phase 1 — Platform Boundary Design
+
+### Intent
+
+Define the platform service boundaries, ownership model, fallback rules, and extraction order before any runtime refactor begins.
+
+### Slices
+
+1. Service boundary definition
+2. Current-code extraction map
+3. Fallback and Windows interpretation rules
+
+### Slice Status
+
+Phase 1 is documented and completed by [platform-boundary-design.md](platform-boundary-design.md).
+
+### Exit Criteria
+
+- platform services are defined
+- ownership boundaries are defined
+- fallback behaviour is defined
+- extraction order is defined
+- no runtime behaviour changes are introduced in this phase
+
 ## Next Phase Preview
 
-Phase 1 should focus on platform boundary design and service ownership:
-
-- identify the narrow platform interfaces
-- decide which code belongs in core app logic versus platform services
-- define fallback behaviour for unsupported capabilities
-
-That phase should still avoid runtime behaviour changes.
+Phase 2 should begin code extraction with the narrowest safe service boundary first, ideally notifications or another small platform-specific seam, while preserving Linux runtime behaviour.
