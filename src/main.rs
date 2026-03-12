@@ -53,7 +53,7 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
         .map(|(x, y)| window::Position::Specific(Point::new(x as f32, y as f32)))
         .unwrap_or_default();
 
-    let mut window_settings = window::Settings {
+    let window_settings = window::Settings {
         transparent: true,
         decorations: false,
         size: Size::new(size, size),
@@ -657,7 +657,7 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
         })
         .unwrap_or_default();
 
-    let mut settings = window::Settings {
+    let settings = window::Settings {
         transparent: true,
         decorations: false,
         resizable: false,
