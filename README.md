@@ -6,7 +6,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 
 - Live analog clock face with hour, minute, and optional second hands
 - Optional weekday and day-of-month display on the clock face
-- Active reminder summary shown on the clock face for medium and large clocks
+- Active reminder summary shown on the clock face for medium and large clocks, with compact multi-item overflow
 - Transparent, borderless main window intended to sit below normal windows
 - Drag-to-move clock placement with saved position
 - Right-click settings window for theme, size, and display toggles
@@ -136,7 +136,7 @@ User-facing and supporting documents now live under `docs/` unless they are part
 ## Current Limitations
 
 - No hourly chime, snooze, recurring alarms, or multi-clock support yet
-- No on-face hover callout, multi-item overflow handling, or small-clock fallback yet
+- No on-face hover callout or small-clock fallback yet
 - No dedicated settings dialog beyond the current control windows
 - Wayland desktop-layer integration is still pending
 - Windows tray support uses a platform-specific backend and should be treated as an early baseline rather than final polished packaging behaviour

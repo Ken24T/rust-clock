@@ -75,9 +75,9 @@ Add the first user-visible on-face summary lane with a conservative layout that 
 
 ### Slice Status
 
-Slices 1 and 2 are now completed by the current bottom-centre summary lane for medium and large clocks.
+Phase 1 is now completed by the current bottom-centre summary lane for medium and large clocks.
 
-The lane now shows the first active reminder with a truncated label and remaining-time summary, while small clocks still omit the lane entirely and multiple active items still collapse to the first visible item only.
+The lane now shows up to two active reminders with a compact `+N more` overflow indicator on the last visible line, while small clocks still omit the lane entirely.
 
 ### Exit Criteria
 
@@ -157,10 +157,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 1, Slice 3:
+Proceed with Phase 2, Slice 1:
 
-- extend the lane to show a second visible item where space allows
-- add a compact overflow indicator for any remaining active items
-- keep the lane bounded so the multi-item case still reads cleanly on medium clocks
+- define the hit targets for visible summary-lane rows
+- decide whether the overflow indicator itself should be hoverable
+- keep drag and right-click behaviour unchanged outside the targeted overlay regions
 
-That keeps the next slice focused on multi-item presentation without revisiting placement or single-item typography.
+That keeps the next slice focused on pointer interaction rather than further layout expansion.
