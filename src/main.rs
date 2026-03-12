@@ -26,7 +26,7 @@ use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertActio
 use clock_face::ClockFace;
 use config::AppConfig;
 use context_menu::ContextMenu;
-use tray::{start_system_tray, SystemTrayHandle, TrayCommand};
+use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();

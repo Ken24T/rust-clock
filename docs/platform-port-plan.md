@@ -236,6 +236,14 @@ Completed.
 
 Completed by moving shared window setting adjustments and post-open hint hooks into the platform module while preserving the existing Linux X11 behaviour.
 
+### Slice 3 Status
+
+Completed by moving the Linux window-hint internals into the Linux platform implementation instead of leaving them in the shared app entry file.
+
+### Slice 4 Status
+
+In progress.
+
 ## Linux Validation Checklist
 
 This checklist should be used later on a Linux environment after each platform-sensitive phase.

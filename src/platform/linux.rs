@@ -1,5 +1,7 @@
 use iced::{window, Task};
 
+use crate::tray::{self, SystemTrayHandle, TrayCommand};
+
 pub fn send_notification(summary: &str, body: &str) {
     // Use notify-send directly — notify-rust's zbus backend can silently
     // fail to display on some desktops (e.g. Cinnamon).
@@ -22,6 +24,10 @@ pub fn send_notification(summary: &str, body: &str) {
         }
         Err(error) => eprintln!("Failed to send notification: {error}"),
     }
+}
+
+pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receiver<TrayCommand>)> {
+    tray::start_system_tray()
 }
 
 pub fn configure_main_window_settings(settings: &mut window::Settings) {

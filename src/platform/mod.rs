@@ -14,9 +14,15 @@ use windows as implementation;
 
 use iced::{window, Task};
 
+pub use crate::tray::{SystemTrayHandle, TrayCommand};
+
 /// Send a platform-native notification when available.
 pub fn send_notification(summary: &str, body: &str) {
     implementation::send_notification(summary, body);
+}
+
+pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receiver<TrayCommand>)> {
+    implementation::start_system_tray()
 }
 
 pub fn configure_main_window_settings(settings: &mut window::Settings) {

@@ -34,6 +34,7 @@ mod linux {
         }
     }
 
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn start_system_tray() -> Option<(SystemTrayHandle, Receiver<TrayCommand>)> {
         let (command_sender, command_receiver) = mpsc::channel();
 
@@ -151,5 +152,9 @@ mod linux {
     pub use SystemTrayHandle as HandleType;
 }
 
-pub use linux::start_system_tray;
 pub use linux::HandleType as SystemTrayHandle;
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn start_system_tray() -> Option<(SystemTrayHandle, std::sync::mpsc::Receiver<TrayCommand>)> {
+    linux::start_system_tray()
+}
