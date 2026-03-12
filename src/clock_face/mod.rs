@@ -5,6 +5,7 @@
 //! Handles left-click (drag) and right-click (context menu) interactions.
 
 mod drawing;
+mod overlay;
 
 use iced::mouse;
 use iced::widget::canvas::{self, Action, Cache, Event, Geometry};

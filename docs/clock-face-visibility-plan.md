@@ -73,6 +73,12 @@ Add the first user-visible on-face summary lane with a conservative layout that 
 2. Render the first active item with a concise summary made from label, kind, or remaining time as appropriate
 3. Extend the lane to show a second visible item and a count-based overflow indicator for the remainder
 
+### Slice Status
+
+Slices 1 and 2 are now completed by the current bottom-centre summary lane for medium and large clocks.
+
+The lane now shows the first active reminder with a truncated label and remaining-time summary, while small clocks still omit the lane entirely and multiple active items still collapse to the first visible item only.
+
 ### Exit Criteria
 
 - at least one active timer or alarm is visible on the clock face
@@ -151,10 +157,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 1, Slice 1:
+Proceed with Phase 1, Slice 3:
 
-- choose the baseline summary-lane position for medium and large clock sizes
-- define the typography and width rules for that lane
-- keep the first visible layout conservative so it does not collide with the date block or centre-hand readability
+- extend the lane to show a second visible item where space allows
+- add a compact overflow indicator for any remaining active items
+- keep the lane bounded so the multi-item case still reads cleanly on medium clocks
 
-That turns the next slice into a bounded rendering decision instead of another structural refactor.
+That keeps the next slice focused on multi-item presentation without revisiting placement or single-item typography.

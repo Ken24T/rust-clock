@@ -1,6 +1,6 @@
 # Rust Clock — Implementation Plan
 
-## Current Version: 0.8.1
+## Current Version: 0.8.2
 
 **Target:** A moveable Linux desktop clock that behaves like a lightweight desklet, with live analog rendering, saved placement, configurable appearance, and built-in alarms/timers.
 
@@ -158,7 +158,7 @@
 
 ### Face-level visibility
 
-- [ ] On-face active-item summary lane
+- [x] On-face active-item summary lane
 - [ ] Alarm/timer hover details
 - [ ] Compact overflow handling for multiple items
 - [ ] Size-aware layout fallback for small clocks
