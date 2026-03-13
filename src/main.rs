@@ -59,10 +59,7 @@ pub fn main() -> iced::Result {
 
 fn main_window_settings(config: &AppConfig) -> window::Settings {
     let size = config.size as f32;
-    let position = config
-        .position
-        .map(|(x, y)| window::Position::Specific(Point::new(x as f32, y as f32)))
-        .unwrap_or_default();
+    let position = window::Position::Specific(main_window_position(config));
 
     let mut window_settings = window::Settings {
         transparent: true,
@@ -169,6 +166,8 @@ enum Message {
     WindowMoved(window::Id, Point),
     /// User requested that a window close.
     WindowCloseRequested(window::Id),
+    /// A window has finished closing.
+    WindowClosed(window::Id),
     /// Toggle the right-click context menu.
     ToggleContextMenu,
     /// Dismiss the context menu (click-away or Escape).
@@ -271,8 +270,26 @@ impl ClockApp {
 
     fn apply_size_change(&mut self) -> Task<Message> {
         let size = self.config.size;
-        let mut tasks = vec![window::oldest()
-            .and_then(move |id| window::resize(id, Size::new(size as f32, size as f32)))];
+        let clamped_position = clamp_clock_position(
+            self.config
+                .position
+                .map(|(x, y)| Point::new(x as f32, y as f32))
+                .unwrap_or(Point::ORIGIN),
+            size as f32,
+        );
+
+        self.config.position = Some((
+            clamped_position.x.round() as i32,
+            clamped_position.y.round() as i32,
+        ));
+        self.save_config();
+
+        let mut tasks = vec![window::oldest().and_then(move |id| {
+            Task::batch([
+                window::move_to(id, clamped_position),
+                window::resize(id, Size::new(size as f32, size as f32)),
+            ])
+        })];
 
         if let (Some(id), Some(content)) = (self.control_window, self.control_window_content) {
             tasks.push(window::move_to(
@@ -333,9 +350,7 @@ impl ClockApp {
     }
 
     fn close_control_window(&mut self) -> Task<Message> {
-        self.control_window_content = None;
-
-        if let Some(id) = self.control_window.take() {
+        if let Some(id) = self.control_window {
             window::close(id)
         } else {
             Task::none()
@@ -372,10 +387,7 @@ impl ClockApp {
     }
 
     fn close_hover_window(&mut self) -> Task<Message> {
-        self.hover_target = None;
-        self.hover_window_content = None;
-
-        if let Some(id) = self.hover_window.take() {
+        if let Some(id) = self.hover_window {
             window::close(id)
         } else {
             Task::none()
@@ -590,6 +602,13 @@ impl ClockApp {
                 }
             }
             Message::WindowCloseRequested(id) => {
+                if Some(id) == self.control_window || Some(id) == self.hover_window {
+                    window::close(id)
+                } else {
+                    Task::done(Message::Quit)
+                }
+            }
+            Message::WindowClosed(id) => {
                 if Some(id) == self.control_window {
                     self.control_window = None;
                     self.control_window_content = None;
@@ -600,7 +619,7 @@ impl ClockApp {
                     self.hover_window_content = None;
                     Task::none()
                 } else {
-                    Task::done(Message::Quit)
+                    Task::none()
                 }
             }
             Message::ToggleContextMenu => {
@@ -809,6 +828,7 @@ impl ClockApp {
         let window_events = window::events().map(|(id, event)| match event {
             window::Event::Moved(point) => Message::WindowMoved(id, point),
             window::Event::CloseRequested => Message::WindowCloseRequested(id),
+            window::Event::Closed => Message::WindowClosed(id),
             _ => Message::NoOp,
         });
 
@@ -845,6 +865,15 @@ impl ClockApp {
 fn focus_clock_window() -> Task<Message> {
     window::oldest()
         .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
+}
+
+fn main_window_position(config: &AppConfig) -> Point {
+    let anchor = config
+        .position
+        .map(|(x, y)| Point::new(x as f32, y as f32))
+        .unwrap_or(Point::ORIGIN);
+
+    clamp_clock_position(anchor, config.size as f32)
 }
 
 fn control_window_size(content: ControlWindowContent) -> Size {
@@ -952,6 +981,24 @@ fn popup_position(config: &AppConfig, popup_size: Size, y_offset: f32) -> Point 
         let y = desired_y.max(POPUP_MARGIN);
 
         Point::new(x, y)
+    }
+}
+
+fn clamp_clock_position(anchor: Point, size: f32) -> Point {
+    let monitor_point = Point::new(anchor.x + size * 0.5, anchor.y + size * 0.5);
+
+    if let Some(work_area) = platform::work_area_for_point(monitor_point.x, monitor_point.y) {
+        let min_x = work_area.x + POPUP_MARGIN;
+        let max_x = work_area.x + work_area.width - size - POPUP_MARGIN;
+        let min_y = work_area.y + POPUP_MARGIN;
+        let max_y = work_area.y + work_area.height - size - POPUP_MARGIN;
+
+        Point::new(
+            anchor.x.clamp(min_x, max_x.max(min_x)),
+            anchor.y.clamp(min_y, max_y.max(min_y)),
+        )
+    } else {
+        Point::new(anchor.x.max(POPUP_MARGIN), anchor.y.max(POPUP_MARGIN))
     }
 }
 
