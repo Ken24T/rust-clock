@@ -1,6 +1,6 @@
 # Rust Clock — Implementation Plan
 
-## Current Version: 1.0.0
+## Current Version: 1.1.2
 
 **Target:** A moveable Linux desktop clock that behaves like a lightweight desklet, with live analog rendering, saved placement, configurable appearance, and built-in alarms/timers.
 
@@ -186,6 +186,7 @@ Phase/slice planning for this work now lives in [docs/clock-face-visibility-plan
 > Branch: `feature/packaging`
 
 - [x] Desktop entry file in `assets/`
+- [x] Windows installer definition and build helper
 - [ ] Application icon asset
 - [ ] AppImage
 - [ ] Debian/Ubuntu package
@@ -199,7 +200,7 @@ Phase/slice planning for this work now lives in [docs/clock-face-visibility-plan
 
 - [x] README updated for the current shipped feature set
 - [x] User guide added for controls, alarms, tray behaviour, and configuration
-- [ ] Release/install guide once packaging artefacts exist
+- [x] Windows installer guide added once packaging artefacts exist
 
 ---
 

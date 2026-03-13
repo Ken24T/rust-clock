@@ -5,6 +5,7 @@ This folder holds supporting documentation for Rust Clock.
 ## Current Documents
 
 - [user-guide.md](user-guide.md): end-user guide for everyday use, alarms, timers, tray behaviour, and optional manual configuration
+- [windows-installer.md](windows-installer.md): Windows installer build, output, and installation behaviour
 - [windows-cross-platform.md](windows-cross-platform.md): exploration notes for bringing Rust Clock beyond Linux, starting with Windows
 - [platform-port-plan.md](platform-port-plan.md): phased porting plan, guard rails, capability matrix, and validation checklists for safe Windows/Linux work
 - [platform-boundary-design.md](platform-boundary-design.md): Phase 1 design for platform service boundaries, ownership, fallbacks, and extraction order
@@ -20,7 +21,6 @@ As a rule of thumb:
 
 ## Suggested Future Additions
 
-- `installation.md`
 - `packaging.md`
 - `architecture.md`
 - `screenshots/`

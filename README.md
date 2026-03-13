@@ -51,6 +51,32 @@ cargo test
 cargo clippy -- -D warnings
 ```
 
+## Windows Installer
+
+Rust Clock now includes a Windows installer definition based on Inno Setup.
+
+### Installer Prerequisites
+
+- Windows with PowerShell
+- Rust stable toolchain
+- Inno Setup 6
+
+You can install Inno Setup with `winget install JRSoftware.InnoSetup`.
+
+### Build The Installer
+
+```powershell
+pwsh -File .\installer\windows\build-installer.ps1
+```
+
+This script will:
+
+- build `target\release\rust-clock.exe`
+- compile the installer from `installer\windows\rust-clock.iss`
+- place the versioned setup executable under `dist\windows\`
+
+The installer uses a per-user install directory under `%LocalAppData%\Programs\Rust Clock`, creates a Start Menu shortcut, and can optionally add desktop and startup shortcuts.
+
 ## Everyday Use
 
 - Left-click the clock face to start an OS-level drag and reposition the widget
@@ -139,6 +165,7 @@ date_text_colour = [0.70, 0.70, 0.72, 1.0]
 
 - [docs/README.md](docs/README.md) for documentation organisation
 - [docs/user-guide.md](docs/user-guide.md) for a workflow-oriented user guide
+- [docs/windows-installer.md](docs/windows-installer.md) for Windows installer build and install notes
 - [PLAN.md](PLAN.md) for implementation status and planned work
 
 User-facing and supporting documents now live under `docs/` unless they are part of the core repo entry points.

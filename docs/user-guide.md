@@ -12,17 +12,17 @@ You can use it as:
 
 ## Getting Started
 
-Start the app with:
+On Windows, install Rust Clock with the provided setup program.
 
-```bash
-cargo run
-```
+After installation, you can start it from:
 
-If you want the faster day-to-day version, use:
+- the Start Menu entry: `Rust Clock`
+- the optional desktop shortcut, if you chose that during install
+- the optional startup shortcut, if you chose launch-on-sign-in during install
 
-```bash
-cargo run --release
-```
+The installer places the app under `%LocalAppData%\Programs\Rust Clock` and keeps your normal user settings and alarms outside the install folder.
+
+If you are using Rust Clock from source on a development machine instead of from the installer, refer to the repo-level setup notes in the main README.
 
 When the app starts, it tries to:
 
@@ -187,7 +187,7 @@ At the moment, the reminder window does not offer separate sound-only or notific
 
 ## Tray Icon
 
-If your Linux desktop supports tray icons, Rust Clock can add one automatically.
+Rust Clock can add a tray icon when the current platform session supports it.
 
 From the tray menu, you can:
 
@@ -201,10 +201,14 @@ If no tray icon appears, the app can still be used normally.
 
 ## Where Settings Are Stored
 
-Rust Clock saves its files here:
+Rust Clock saves its files in your normal user configuration area.
+
+On Linux, the files are:
 
 - `~/.config/rust-clock/config.toml` for app settings
 - `~/.config/rust-clock/alarms.toml` for alarms and timers
+
+On Windows, the app uses the matching per-user configuration location resolved by the operating system.
 
 In normal use, you do not need to edit these files by hand.
 
@@ -252,15 +256,15 @@ If `theme_config` is present, it overrides the named built-in theme.
 
 ### No Desktop Notifications
 
-Make sure `notify-send` is installed and available on your system.
+On Linux, make sure `notify-send` is installed and available on your system.
 
 ### No Tray Icon
 
-Some Linux desktop environments do not show tray icons in every session. The clock, settings window, and alarms panel should still work.
+Some desktop environments do not show tray icons in every session. The clock, settings window, and alarms panel should still work.
 
 ### Position Or Settings Are Not Being Saved
 
-Check that Rust Clock can write to `~/.config/rust-clock/`.
+Check that Rust Clock can write to your normal per-user configuration directory.
 
 ### Wayland Looks Different From X11
 
