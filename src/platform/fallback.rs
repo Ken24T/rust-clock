@@ -2,7 +2,7 @@ use iced::{window, Task};
 
 use crate::tray::{SystemTrayHandle, TrayCommand};
 
-use super::PlatformCapabilities;
+use super::{PlatformCapabilities, WorkArea};
 
 pub fn capabilities() -> PlatformCapabilities {
     PlatformCapabilities {
@@ -12,6 +12,10 @@ pub fn capabilities() -> PlatformCapabilities {
         sticky_workspace: false,
         skip_taskbar: false,
     }
+}
+
+pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
+    None
 }
 
 pub fn send_notification(summary: &str, body: &str) {

@@ -16,7 +16,7 @@ const MAX_VISIBLE_SUMMARY_LINES: usize = 2;
 const SUMMARY_LANE_WIDTH_FACTOR: f32 = 1.06;
 const SUMMARY_LANE_SINGLE_HEIGHT_FACTOR: f32 = 0.16;
 const SUMMARY_LANE_MULTI_HEIGHT_FACTOR: f32 = 0.25;
-const SUMMARY_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.52;
+const SUMMARY_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.28;
 const SUMMARY_LANE_TEXT_SIZE_FACTOR: f32 = 0.11;
 const SUMMARY_LANE_SHADOW_OFFSET_FACTOR: f32 = 0.01;
 const SUMMARY_LANE_LINE_SPACING_FACTOR: f32 = 1.05;
@@ -24,7 +24,8 @@ const SUMMARY_LANE_TEXT_WIDTH_FACTOR: f32 = 0.62;
 const SUMMARY_LANE_LINE_HIT_HEIGHT_FACTOR: f32 = 1.35;
 const REDUCED_LANE_WIDTH_FACTOR: f32 = 0.96;
 const REDUCED_LANE_HEIGHT_FACTOR: f32 = 0.14;
-const REDUCED_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.58;
+const REDUCED_LANE_MULTI_HEIGHT_FACTOR: f32 = 0.21;
+const REDUCED_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.34;
 const REDUCED_LANE_TEXT_SIZE_FACTOR: f32 = 0.10;
 const MINIMAL_INDICATOR_WIDTH_FACTOR: f32 = 0.40;
 const MINIMAL_INDICATOR_HEIGHT_FACTOR: f32 = 0.14;
@@ -216,13 +217,25 @@ fn overlay_layout(centre: Point, radius: f32, item_count: usize) -> Option<Overl
             OverlayLayoutMode::FullLane,
         )
         .map(OverlayLayout::Summary),
-        OverlayLayoutMode::ReducedLane => {
-            summary_lane_layout_for_mode(centre, radius, 1, OverlayLayoutMode::ReducedLane)
-                .map(OverlayLayout::Summary)
-        }
+        OverlayLayoutMode::ReducedLane => summary_lane_layout_for_mode(
+            centre,
+            radius,
+            item_count.min(MAX_VISIBLE_SUMMARY_LINES),
+            OverlayLayoutMode::ReducedLane,
+        )
+        .map(OverlayLayout::Summary),
         OverlayLayoutMode::MinimalIndicator => {
             minimal_indicator_layout(centre, radius).map(OverlayLayout::MinimalIndicator)
         }
+    }
+}
+
+fn visible_line_count_for_radius(radius: f32, item_count: usize) -> Option<usize> {
+    match overlay_layout_mode(radius)? {
+        OverlayLayoutMode::FullLane | OverlayLayoutMode::ReducedLane => {
+            Some(item_count.min(MAX_VISIBLE_SUMMARY_LINES))
+        }
+        OverlayLayoutMode::MinimalIndicator => Some(1),
     }
 }
 
@@ -258,7 +271,7 @@ fn summary_lane_layout_for_mode(
         OverlayLayoutMode::ReducedLane => (
             REDUCED_LANE_WIDTH_FACTOR,
             REDUCED_LANE_HEIGHT_FACTOR,
-            REDUCED_LANE_HEIGHT_FACTOR,
+            REDUCED_LANE_MULTI_HEIGHT_FACTOR,
             REDUCED_LANE_VERTICAL_OFFSET_FACTOR,
             REDUCED_LANE_TEXT_SIZE_FACTOR,
         ),
@@ -677,11 +690,11 @@ fn hover_window_content(
     radius: f32,
     hovered_target: Option<OverlayHitTarget>,
 ) -> Option<HoverWindowContent> {
+    let visible_line_count = visible_line_count_for_radius(radius, items.len())?;
     let detail = match overlay_layout_mode(radius)? {
-        OverlayLayoutMode::FullLane => {
-            hover_detail(items, MAX_VISIBLE_SUMMARY_LINES, hovered_target)
+        OverlayLayoutMode::FullLane | OverlayLayoutMode::ReducedLane => {
+            hover_detail(items, visible_line_count, hovered_target)
         }
-        OverlayLayoutMode::ReducedLane => hover_detail(items, 1, hovered_target),
         OverlayLayoutMode::MinimalIndicator => match hovered_target {
             Some(OverlayHitTarget::MinimalIndicator) => Some(collapsed_hover_detail(items)),
             _ => None,
@@ -1032,6 +1045,7 @@ mod tests {
             summary_lane_layout(centre, 119.0, 1).expect("medium clock should show a lane");
 
         assert!(layout.bounds.y > centre.y);
+        assert!(layout.bounds.y < centre.y + 30.0);
         assert!(layout.text_size >= 12.0);
         assert!(layout.max_chars >= 12);
         assert_eq!(layout.line_count, 1);
@@ -1077,7 +1091,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_layout_uses_single_line_summary_in_reduced_mode() {
+    fn overlay_layout_uses_two_visible_lines_in_reduced_mode() {
         let layout = overlay_layout(Point::new(100.0, 100.0), 84.0, 3)
             .expect("reduced sizes should still show a summary layout");
 
@@ -1085,7 +1099,27 @@ mod tests {
             panic!("expected reduced mode to use a summary layout");
         };
 
-        assert_eq!(layout.line_count, 1);
+        assert_eq!(layout.line_count, 2);
+        assert!(layout.bounds.y < 126.0);
+    }
+
+    #[test]
+    fn reduced_mode_shows_two_items_without_overflow_when_only_two_are_active() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+        ];
+
+        let layout = overlay_layout(Point::new(100.0, 100.0), 84.0, items.len())
+            .expect("reduced sizes should still show a summary layout");
+        let OverlayLayout::Summary(layout) = layout else {
+            panic!("expected reduced mode to use a summary layout");
+        };
+
+        let summaries = summary_lane_texts(&items, layout.max_chars, layout.line_count);
+
+        assert_eq!(layout.line_count, 2);
+        assert_eq!(summaries, vec!["Tea".to_string(), "Laundry".to_string()]);
     }
 
     #[test]
@@ -1127,6 +1161,7 @@ mod tests {
         assert_eq!(layout.line_count, 2);
         assert!(layout.text_positions[0].y < layout.text_positions[1].y);
         assert!(layout.bounds.height > 20.0);
+        assert!(layout.bounds.y < centre.y + 24.0);
     }
 
     #[test]
@@ -1184,16 +1219,20 @@ mod tests {
         ];
         let regions = overlay_hit_regions(&items, Point::new(100.0, 100.0), 84.0);
 
-        assert_eq!(regions.len(), 2);
+        assert_eq!(regions.len(), 3);
         assert!(matches!(
             regions[0].target,
             OverlayHitTarget::OverflowIndicator {
-                hidden_count: 2,
+                hidden_count: 1,
                 ..
             }
         ));
         assert!(matches!(
             regions[1].target,
+            OverlayHitTarget::SummaryItem(_)
+        ));
+        assert!(matches!(
+            regions[2].target,
             OverlayHitTarget::SummaryItem(_)
         ));
     }

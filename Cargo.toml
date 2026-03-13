@@ -1,6 +1,6 @@
 [package]
 name = "rust-clock"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Analog clock desklet for Linux with alarms, timers, and tray controls"
 license = "MIT"
@@ -22,7 +22,7 @@ ksni = { version = "0.3", features = ["blocking"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 winrt-notification = "0.5.1"
 tray-icon = "0.21.3"
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 opt-level = 3

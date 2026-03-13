@@ -8,14 +8,18 @@ use iced::widget::{button, center, column, container, row, text};
 use iced::{Element, Fill, Length, Padding};
 
 use crate::alarm::AlarmManager;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ClockSizePreset, OPACITY_STEP_PERCENT, SIZE_ADJUST_STEP_PERCENT};
 use crate::theme::WindowChrome;
 use crate::Message;
 
 // -- Theme name list (must match theme.rs presets) -------------------------
 
 const THEMES: &[&str] = &["classic", "dark", "minimal", "transparent"];
-const SIZES: &[(u32, &str)] = &[(150, "Small"), (250, "Medium"), (350, "Large")];
+const SIZES: &[(ClockSizePreset, &str)] = &[
+    (ClockSizePreset::Small, "Small"),
+    (ClockSizePreset::Medium, "Medium"),
+    (ClockSizePreset::Large, "Large"),
+];
 
 // -- Context menu widget ---------------------------------------------------
 
@@ -79,15 +83,40 @@ impl<'a> ContextMenu<'a> {
 
         let theme_row = column![theme_label, row(theme_buttons).spacing(4)].spacing(2);
 
+        // -- Opacity row --
+        let opacity_label = text("Opacity").size(12).color(chrome.muted_text);
+        let opacity_controls = row![
+            step_button(
+                "-",
+                self.config
+                    .can_adjust_opacity_percent(-OPACITY_STEP_PERCENT)
+                    .then_some(Message::AdjustOpacity(-OPACITY_STEP_PERCENT),),
+                chrome,
+            ),
+            text(format!("{}%", self.config.opacity_percent))
+                .size(11)
+                .color(chrome.text),
+            step_button(
+                "+",
+                self.config
+                    .can_adjust_opacity_percent(OPACITY_STEP_PERCENT)
+                    .then_some(Message::AdjustOpacity(OPACITY_STEP_PERCENT)),
+                chrome,
+            ),
+        ]
+        .spacing(6)
+        .align_y(alignment::Vertical::Center);
+        let opacity_row = column![opacity_label, opacity_controls].spacing(2);
+
         // -- Size picker row --
         let size_label = text("Size").size(12).color(chrome.muted_text);
 
         let size_buttons: Vec<Element<'_, Message>> = SIZES
             .iter()
-            .map(|(sz, label)| {
-                let is_active = self.config.size == *sz;
+            .map(|(preset, label)| {
+                let is_active = self.config.active_size_preset() == *preset;
                 let btn = button(text(*label).size(11).align_x(alignment::Horizontal::Center))
-                    .on_press(Message::SetSize(*sz))
+                    .on_press(Message::SetSizePreset(*preset))
                     .padding(Padding::from([2, 6]));
 
                 if is_active {
@@ -101,6 +130,38 @@ impl<'a> ContextMenu<'a> {
             .collect();
 
         let size_row = column![size_label, row(size_buttons).spacing(4)].spacing(2);
+
+        let size_adjust_label = text(format!(
+            "Fine Tune {} • {} px",
+            self.config.size_adjustment_label(),
+            self.config.size
+        ))
+        .size(12)
+        .color(chrome.muted_text);
+
+        let size_adjust_controls = row![
+            step_button(
+                "-10%",
+                self.config
+                    .can_adjust_size_adjust_percent(-SIZE_ADJUST_STEP_PERCENT)
+                    .then_some(Message::AdjustSize(-SIZE_ADJUST_STEP_PERCENT)),
+                chrome,
+            ),
+            text(self.config.active_size_preset().label())
+                .size(11)
+                .color(chrome.text),
+            step_button(
+                "+10%",
+                self.config
+                    .can_adjust_size_adjust_percent(SIZE_ADJUST_STEP_PERCENT)
+                    .then_some(Message::AdjustSize(SIZE_ADJUST_STEP_PERCENT)),
+                chrome,
+            ),
+        ]
+        .spacing(6)
+        .align_y(alignment::Vertical::Center);
+
+        let size_adjust_row = column![size_adjust_label, size_adjust_controls].spacing(2);
 
         // -- Toggle items --
         let date_toggle = menu_toggle(
@@ -159,7 +220,9 @@ impl<'a> ContextMenu<'a> {
             header_row,
             separator,
             theme_row,
+            opacity_row,
             size_row,
+            size_adjust_row,
             date_toggle,
             smooth_toggle,
             seconds_toggle,
@@ -211,6 +274,22 @@ fn separator_widget<'a>(chrome: WindowChrome) -> Element<'a, Message> {
         .into()
 }
 
+fn step_button<'a>(
+    label: &'a str,
+    message: Option<Message>,
+    chrome: WindowChrome,
+) -> Element<'a, Message> {
+    let button = button(text(label).size(11).align_x(alignment::Horizontal::Center))
+        .padding(Padding::from([2, 8]))
+        .width(Length::Shrink)
+        .style(move |theme, status| menu_button_style(theme, status, chrome));
+
+    match message {
+        Some(message) => button.on_press(message).into(),
+        None => button.into(),
+    }
+}
+
 /// Capitalise the first letter of a string.
 fn capitalise(s: &str) -> String {
     let mut chars = s.chars();
@@ -254,11 +333,16 @@ fn menu_button_style(
 ) -> button::Style {
     let bg = match status {
         button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        button::Status::Disabled => chrome.separator,
         _ => chrome.surface,
+    };
+    let text_color = match status {
+        button::Status::Disabled => chrome.muted_text,
+        _ => chrome.text,
     };
     button::Style {
         background: Some(iced::Background::Color(bg)),
-        text_color: chrome.text,
+        text_color,
         border: iced::Border {
             radius: 4.0.into(),
             ..iced::Border::default()

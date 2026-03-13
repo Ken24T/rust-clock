@@ -65,6 +65,18 @@ The built-in themes are:
 
 When you choose a theme, the clock updates straight away and saves the change for next time.
 
+### Tune Opacity
+
+The settings window also has an `Opacity` control that works independently from the theme preset.
+
+That means you can use combinations such as:
+
+- `dark` at `50%` opacity
+- `classic` at `95%` opacity
+- `transparent` at a slightly stronger or lighter opacity than its default look
+
+Opacity changes apply live without closing the settings window.
+
 ### Change The Size
 
 The quick size options are:
@@ -73,7 +85,17 @@ The quick size options are:
 - Medium: `250`
 - Large: `350`
 
-If you prefer, you can also set another size manually in the config file anywhere from `50` to `500`.
+After choosing one of those presets, you can fine-tune it up or down in `10%` steps from the settings window.
+
+Examples:
+
+- Small `+10%`
+- Medium `-20%`
+- Large `+30%`
+
+Rust Clock keeps the size tuning within bounded sane ranges, and the settings window shows the current effective pixel size as feedback.
+
+If you prefer, you can still inspect the resulting size value in the config file, with the effective clock size kept within `50` to `500`.
 
 ### Show Or Hide Details
 
@@ -193,6 +215,9 @@ If you do want to customise the app more deeply, the main config file is `~/.con
 Available top-level settings include:
 
 - `size`: clock size in logical pixels, from `50` to `500`
+- `size_preset`: `small`, `medium`, or `large`
+- `size_adjust_percent`: bounded relative adjustment around the selected preset
+- `opacity_percent`: global clock opacity percentage
 - `position`: saved clock position as `[x, y]`
 - `theme`: built-in theme name
 - `smooth_seconds`: `true` or `false`

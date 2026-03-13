@@ -2,7 +2,7 @@ use iced::{window, Task};
 
 use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
-use super::PlatformCapabilities;
+use super::{PlatformCapabilities, WorkArea};
 
 pub fn capabilities() -> PlatformCapabilities {
     PlatformCapabilities {
@@ -12,6 +12,20 @@ pub fn capabilities() -> PlatformCapabilities {
         sticky_workspace: true,
         skip_taskbar: true,
     }
+}
+
+pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
+    use x11rb::connection::Connection;
+
+    let (conn, screen_num) = x11rb::rust_connection::RustConnection::connect(None).ok()?;
+    let screen = conn.setup().roots.get(screen_num)?;
+
+    Some(WorkArea {
+        x: 0.0,
+        y: 0.0,
+        width: screen.width_in_pixels as f32,
+        height: screen.height_in_pixels as f32,
+    })
 }
 
 pub fn send_notification(summary: &str, body: &str) {

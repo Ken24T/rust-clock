@@ -331,6 +331,27 @@ impl Default for ThemeConfig {
 // -- Built-in theme presets -----------------------------------------------
 
 impl ThemeConfig {
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        let opacity = opacity.clamp(0.0, 1.0);
+
+        for colour in [
+            &mut self.face_colour,
+            &mut self.border_colour,
+            &mut self.tick_colour,
+            &mut self.numeral_colour,
+            &mut self.hour_hand_colour,
+            &mut self.minute_hand_colour,
+            &mut self.second_hand_colour,
+            &mut self.centre_dot_colour,
+            &mut self.shadow_colour,
+            &mut self.date_text_colour,
+        ] {
+            colour.0[3] = (colour.0[3] * opacity).clamp(0.0, 1.0);
+        }
+
+        self
+    }
+
     /// Classic — white face, dark hands, red second hand.
     pub fn classic() -> Self {
         Self {
@@ -466,5 +487,14 @@ mod tests {
         assert!(contrast_ratio(chrome.accent_soft, chrome.accent_soft_text) >= 4.5);
         assert!(contrast_ratio(chrome.success_soft, chrome.success_soft_text) >= 4.5);
         assert!(contrast_ratio(chrome.danger_soft, chrome.danger_soft_text) >= 4.5);
+    }
+
+    #[test]
+    fn with_opacity_scales_theme_alpha_channels() {
+        let theme = ThemeConfig::dark().with_opacity(0.5);
+
+        assert!((theme.face_colour.0[3] - 0.46).abs() < 0.01);
+        assert!((theme.border_colour.0[3] - 0.5).abs() < 0.01);
+        assert!((theme.shadow_colour.0[3] - 0.20).abs() < 0.01);
     }
 }

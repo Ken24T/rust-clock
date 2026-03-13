@@ -1,9 +1,11 @@
 use iced::{window, Task};
+use windows_sys::Win32::Foundation::{POINT, RECT};
+use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use winrt_notification::{Duration, Toast};
 
 use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
-use super::PlatformCapabilities;
+use super::{PlatformCapabilities, WorkArea};
 
 pub fn capabilities() -> PlatformCapabilities {
     PlatformCapabilities {
@@ -12,6 +14,40 @@ pub fn capabilities() -> PlatformCapabilities {
         desktop_window_hints: false,
         sticky_workspace: false,
         skip_taskbar: true,
+    }
+}
+
+pub fn work_area_for_point(x: f32, y: f32) -> Option<WorkArea> {
+    let point = POINT {
+        x: x.round() as i32,
+        y: y.round() as i32,
+    };
+
+    // SAFETY: The POINT is passed by value, the monitor handle is only used for the immediate
+    // query, and the MONITORINFO struct is correctly initialised with its size before the call.
+    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        None
+    } else {
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            rcMonitor: RECT::default(),
+            rcWork: RECT::default(),
+            dwFlags: 0,
+        };
+
+        // SAFETY: `info` points to a valid MONITORINFO buffer for the duration of the call.
+        let ok = unsafe { GetMonitorInfoW(monitor, &mut info as *mut MONITORINFO) };
+        if ok == 0 {
+            return None;
+        }
+
+        Some(WorkArea {
+            x: info.rcWork.left as f32,
+            y: info.rcWork.top as f32,
+            width: (info.rcWork.right - info.rcWork.left) as f32,
+            height: (info.rcWork.bottom - info.rcWork.top) as f32,
+        })
     }
 }
 

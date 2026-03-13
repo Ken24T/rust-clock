@@ -27,11 +27,13 @@ use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
 /// Retry interval for Linux startup window hints.
 const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
+const POPUP_GAP: f32 = 18.0;
+const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
 
 use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertAction};
 use clock_face::{ClockFace, HoverWindowContent, OverlayHitTarget};
-use config::AppConfig;
+use config::{AppConfig, ClockSizePreset};
 use context_menu::ContextMenu;
 use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
 use theme::window_chrome;
@@ -173,8 +175,12 @@ enum Message {
     DismissMenu,
     /// Switch to a named theme preset.
     SetTheme(String),
-    /// Resize the clock window.
-    SetSize(u32),
+    /// Switch to a named clock size preset.
+    SetSizePreset(ClockSizePreset),
+    /// Adjust size relative to the preset base size.
+    AdjustSize(i8),
+    /// Adjust global clock opacity.
+    AdjustOpacity(i8),
     /// Toggle the date display.
     ToggleDate,
     /// Toggle the smooth second hand.
@@ -253,7 +259,7 @@ impl ClockApp {
 
     /// Apply the current config to the live clock face.
     fn apply_theme(&mut self) {
-        let theme = self.config.resolved_theme();
+        let theme = self.config.resolved_clock_theme();
         self.clock_face = ClockFace::new(
             theme,
             self.config.smooth_seconds,
@@ -261,6 +267,35 @@ impl ClockApp {
             self.config.show_seconds,
         );
         self.sync_clock_face_active_items();
+    }
+
+    fn apply_size_change(&mut self) -> Task<Message> {
+        let size = self.config.size;
+        let mut tasks = vec![window::oldest()
+            .and_then(move |id| window::resize(id, Size::new(size as f32, size as f32)))];
+
+        if let (Some(id), Some(content)) = (self.control_window, self.control_window_content) {
+            tasks.push(window::move_to(
+                id,
+                control_window_position(content, &self.config),
+            ));
+        }
+
+        if self.hover_target.is_some() {
+            tasks.push(self.update_hover_window(self.hover_target));
+        } else if let Some(id) = self.hover_window {
+            let popup_size = self
+                .hover_window_content
+                .as_ref()
+                .map(hover_window_size)
+                .unwrap_or(Size::new(260.0, 140.0));
+            tasks.push(window::move_to(
+                id,
+                hover_window_position(&self.config, popup_size),
+            ));
+        }
+
+        Task::batch(tasks)
     }
 
     fn sync_clock_face_active_items(&mut self) {
@@ -317,8 +352,8 @@ impl ClockApp {
             return self.close_hover_window();
         };
 
-        let position = hover_window_position(&self.config);
         let size = hover_window_size(&content);
+        let position = hover_window_position(&self.config, size);
 
         if let Some(id) = self.hover_window {
             self.hover_window_content = Some(content);
@@ -543,7 +578,12 @@ impl ClockApp {
                     self.save_config();
 
                     if let Some(hover_id) = self.hover_window {
-                        window::move_to(hover_id, hover_window_position(&self.config))
+                        let popup_size = self
+                            .hover_window_content
+                            .as_ref()
+                            .map(hover_window_size)
+                            .unwrap_or(Size::new(260.0, 140.0));
+                        window::move_to(hover_id, hover_window_position(&self.config, popup_size))
                     } else {
                         Task::none()
                     }
@@ -584,22 +624,28 @@ impl ClockApp {
                 self.config.theme_config = None;
                 self.apply_theme();
                 self.save_config();
-                let close_control = self.close_control_window();
-                let close_hover = self.close_hover_window();
-                Task::batch([close_control, close_hover])
+                Task::none()
             }
-            Message::SetSize(size) => {
-                self.config.size = size;
+            Message::SetSizePreset(preset) => {
+                self.config.set_size_preset(preset);
                 self.save_config();
-                let close_control = self.close_control_window();
-                let close_hover = self.close_hover_window();
-                Task::batch([
-                    close_control,
-                    close_hover,
-                    window::oldest().and_then(move |id| {
-                        window::resize(id, Size::new(size as f32, size as f32))
-                    }),
-                ])
+                self.apply_size_change()
+            }
+            Message::AdjustSize(delta) => {
+                if self.config.adjust_size_adjust_percent(delta) {
+                    self.save_config();
+                    self.apply_size_change()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::AdjustOpacity(delta) => {
+                if self.config.adjust_opacity_percent(delta) {
+                    self.apply_theme();
+                    self.save_config();
+                }
+
+                Task::none()
             }
             Message::ToggleDate => {
                 self.config.show_date = !self.config.show_date;
@@ -801,18 +847,15 @@ fn focus_clock_window() -> Task<Message> {
         .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
 }
 
-fn control_window_settings(content: ControlWindowContent, config: &AppConfig) -> window::Settings {
-    let size = match content {
-        ControlWindowContent::Menu => Size::new(280.0, 360.0),
+fn control_window_size(content: ControlWindowContent) -> Size {
+    match content {
+        ControlWindowContent::Menu => Size::new(300.0, 420.0),
         ControlWindowContent::AlarmPanel => Size::new(300.0, 520.0),
-    };
+    }
+}
 
-    let position = config
-        .position
-        .map(|(x, y)| {
-            window::Position::Specific(Point::new(x as f32 + config.size as f32 + 24.0, y as f32))
-        })
-        .unwrap_or_default();
+fn control_window_settings(content: ControlWindowContent, config: &AppConfig) -> window::Settings {
+    let size = control_window_size(content);
 
     let mut settings = window::Settings {
         transparent: true,
@@ -820,7 +863,7 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
         resizable: false,
         minimizable: false,
         size,
-        position,
+        position: window::Position::Specific(control_window_position(content, config)),
         level: window::Level::Normal,
         icon: app_window_icon(),
         ..Default::default()
@@ -832,13 +875,14 @@ fn control_window_settings(content: ControlWindowContent, config: &AppConfig) ->
 }
 
 fn hover_window_settings(content: &HoverWindowContent, config: &AppConfig) -> window::Settings {
+    let size = hover_window_size(content);
     let mut settings = window::Settings {
         transparent: false,
         decorations: false,
         resizable: false,
         minimizable: false,
-        size: hover_window_size(content),
-        position: window::Position::Specific(hover_window_position(config)),
+        size,
+        position: window::Position::Specific(hover_window_position(config, size)),
         level: window::Level::AlwaysOnTop,
         icon: app_window_icon(),
         ..Default::default()
@@ -860,12 +904,55 @@ fn hover_window_size(content: &HoverWindowContent) -> Size {
     Size::new(width, height)
 }
 
-fn hover_window_position(config: &AppConfig) -> Point {
-    let size = config.size as f32;
-    config
+fn hover_window_position(config: &AppConfig, popup_size: Size) -> Point {
+    popup_position(config, popup_size, config.size as f32 * 0.24)
+}
+
+fn control_window_position(content: ControlWindowContent, config: &AppConfig) -> Point {
+    popup_position(config, control_window_size(content), 0.0)
+}
+
+fn popup_position(config: &AppConfig, popup_size: Size, y_offset: f32) -> Point {
+    let clock_size = config.size as f32;
+    let anchor = config
         .position
-        .map(|(x, y)| Point::new(x as f32 + size + 18.0, y as f32 + size * 0.24))
-        .unwrap_or(Point::new(size + 18.0, size * 0.24))
+        .map(|(x, y)| Point::new(x as f32, y as f32))
+        .unwrap_or(Point::ORIGIN);
+    let monitor_point = Point::new(anchor.x + clock_size * 0.5, anchor.y + clock_size * 0.5);
+
+    let desired_right_x = anchor.x + clock_size + POPUP_GAP;
+    let desired_left_x = anchor.x - popup_size.width - POPUP_GAP;
+    let desired_y = anchor.y + y_offset;
+
+    if let Some(work_area) = platform::work_area_for_point(monitor_point.x, monitor_point.y) {
+        let min_x = work_area.x + POPUP_MARGIN;
+        let max_x = work_area.x + work_area.width - popup_size.width - POPUP_MARGIN;
+        let min_y = work_area.y + POPUP_MARGIN;
+        let max_y = work_area.y + work_area.height - popup_size.height - POPUP_MARGIN;
+
+        let right_fits = desired_right_x <= max_x;
+        let left_fits = desired_left_x >= min_x;
+
+        let x = if right_fits {
+            desired_right_x
+        } else if left_fits {
+            desired_left_x
+        } else {
+            desired_right_x.clamp(min_x, max_x.max(min_x))
+        };
+        let y = desired_y.clamp(min_y, max_y.max(min_y));
+
+        Point::new(x, y)
+    } else {
+        let x = if desired_left_x >= POPUP_MARGIN {
+            desired_left_x.max(POPUP_MARGIN)
+        } else {
+            desired_right_x.max(POPUP_MARGIN)
+        };
+        let y = desired_y.max(POPUP_MARGIN);
+
+        Point::new(x, y)
+    }
 }
 
 fn clock_radius(size: u32) -> f32 {

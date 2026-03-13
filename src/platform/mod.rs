@@ -25,8 +25,20 @@ pub struct PlatformCapabilities {
     pub skip_taskbar: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorkArea {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 pub fn capabilities() -> PlatformCapabilities {
     implementation::capabilities()
+}
+
+pub fn work_area_for_point(x: f32, y: f32) -> Option<WorkArea> {
+    implementation::work_area_for_point(x, y)
 }
 
 /// Send a platform-native notification when available.

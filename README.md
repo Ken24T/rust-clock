@@ -12,7 +12,9 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Drag-to-move clock placement with saved position
 - Right-click settings window for theme, size, and display toggles
 - Four built-in themes: Classic, Dark, Minimal, Transparent
+- Separate clock opacity control so any built-in theme can be tuned from subtle transparency to fully opaque
 - Optional custom theme configuration through TOML
+- Preset-based size tuning with Small, Medium, and Large plus bounded relative adjustment
 - Alarm and timer management panel with create, edit, delete, and quick presets
 - Platform tray integration with focus, quick timer, alarm panel, and quit actions where supported
 - Persistent configuration and alarm storage in the XDG config directory
@@ -61,7 +63,9 @@ cargo clippy -- -D warnings
 The right-click settings window currently lets you:
 
 - switch between the built-in themes
+- adjust clock opacity independently of the selected theme
 - choose Small, Medium, or Large size presets
+- fine-tune the selected size preset up or down in bounded 10% steps
 - toggle the date display
 - toggle smooth seconds
 - toggle second-hand visibility
@@ -104,6 +108,9 @@ Example configuration:
 
 ```toml
 size = 250
+size_preset = "medium"
+size_adjust_percent = 0
+opacity_percent = 100
 theme = "classic"
 smooth_seconds = true
 show_date = true
