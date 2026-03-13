@@ -39,6 +39,7 @@ The main clock window shows:
 - hour and minute hands
 - an optional second hand
 - an optional weekday and date display
+- an active reminder summary on medium and large clocks when a timer or alarm is running
 
 ### Basic Controls
 
@@ -91,6 +92,12 @@ The `Alarms & Timers` button opens the reminder window. If you already have acti
 ## Alarms And Timers
 
 Rust Clock includes a simple reminder panel for countdown timers and clock alarms.
+
+If you have an active reminder, the main clock face now keeps some reminder presence at every supported size. Medium and Large clocks show up to two active items as short summaries near the bottom of the dial. If more reminders are active, the last visible line shows a compact `+N more` overflow indicator.
+
+Intermediate clock sizes switch to a reduced single-line summary so the face stays readable without dropping the overlay entirely. The smallest clock sizes show a compact active-count badge instead of item-by-item text.
+
+Hovering a visible reminder summary opens a separate reminder detail window beside the clock instead of drawing the full callout over the dial. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders in that same detached window, and the minimal count badge also uses the detached reminder window for its listed detail view.
 
 ### Quick Timers
 

@@ -6,6 +6,178 @@
 use iced::Color;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy)]
+pub struct WindowChrome {
+    pub panel_background: Color,
+    pub panel_border: Color,
+    pub panel_shadow: Color,
+    pub text: Color,
+    pub muted_text: Color,
+    pub separator: Color,
+    pub surface: Color,
+    pub surface_hover: Color,
+    pub accent: Color,
+    pub accent_soft: Color,
+    pub accent_soft_text: Color,
+    pub success: Color,
+    pub success_soft: Color,
+    pub success_text: Color,
+    pub success_soft_text: Color,
+    pub danger: Color,
+    pub danger_soft: Color,
+    pub danger_text: Color,
+    pub danger_soft_text: Color,
+    pub input_background: Color,
+    pub input_border: Color,
+    pub input_placeholder: Color,
+    pub selection: Color,
+    pub warning: Color,
+}
+
+pub fn window_chrome(theme: &ThemeConfig) -> WindowChrome {
+    let base = opaque(theme.face_colour.into());
+    let border = opaque(theme.border_colour.into());
+    let preferred_text = opaque(theme.numeral_colour.into());
+    let text = readable_text(base, preferred_text);
+    let light_base = relative_luminance(base) >= 0.58;
+    let panel_background = if light_base {
+        mix_colours(base, Color::WHITE, 0.05)
+    } else {
+        mix_colours(base, Color::BLACK, 0.08)
+    };
+    let panel_border = mix_colours(border, text, 0.16);
+    let separator = mix_colours(panel_border, panel_background, 0.42);
+    let accent_seed = opaque(theme.second_hand_colour.into());
+    let accent = if colour_distance(panel_background, accent_seed) < 0.22 {
+        mix_colours(accent_seed, text, 0.28)
+    } else {
+        accent_seed
+    };
+    let accent_soft = mix_colours(
+        panel_background,
+        accent,
+        if light_base { 0.14 } else { 0.18 },
+    );
+    let surface = if light_base {
+        mix_colours(panel_background, border, 0.06)
+    } else {
+        mix_colours(panel_background, text, 0.07)
+    };
+    let surface_hover = mix_colours(surface, accent, if light_base { 0.16 } else { 0.22 });
+    let input_background = if light_base {
+        mix_colours(surface, Color::WHITE, 0.16)
+    } else {
+        mix_colours(surface, Color::BLACK, 0.10)
+    };
+    let input_border = mix_colours(panel_border, accent, 0.18);
+    let muted_text = mix_colours(text, panel_background, 0.42);
+    let input_placeholder = mix_colours(muted_text, panel_background, 0.18);
+    let selection = mix_colours(accent, panel_background, 0.32);
+    let success = mix_colours(Color::from_rgb(0.20, 0.62, 0.34), accent, 0.10);
+    let success_soft = mix_colours(
+        panel_background,
+        success,
+        if light_base { 0.18 } else { 0.24 },
+    );
+    let danger = mix_colours(Color::from_rgb(0.74, 0.24, 0.24), accent, 0.06);
+    let danger_soft = mix_colours(
+        panel_background,
+        danger,
+        if light_base { 0.18 } else { 0.24 },
+    );
+
+    WindowChrome {
+        panel_background,
+        panel_border,
+        panel_shadow: Color::from_rgba(0.0, 0.0, 0.0, if light_base { 0.12 } else { 0.22 }),
+        text,
+        muted_text,
+        separator,
+        surface,
+        surface_hover,
+        accent,
+        accent_soft,
+        accent_soft_text: readable_text(accent_soft, accent),
+        success,
+        success_soft,
+        success_text: readable_text(success, Color::WHITE),
+        success_soft_text: readable_text(success_soft, success),
+        danger,
+        danger_soft,
+        danger_text: readable_text(danger, Color::WHITE),
+        danger_soft_text: readable_text(danger_soft, danger),
+        input_background,
+        input_border,
+        input_placeholder,
+        selection,
+        warning: Color::from_rgb(0.82, 0.62, 0.22),
+    }
+}
+
+fn mix_colours(base: Color, accent: Color, amount: f32) -> Color {
+    let amount = amount.clamp(0.0, 1.0);
+
+    Color {
+        r: base.r + (accent.r - base.r) * amount,
+        g: base.g + (accent.g - base.g) * amount,
+        b: base.b + (accent.b - base.b) * amount,
+        a: 1.0,
+    }
+}
+
+fn readable_text(background: Color, preferred: Color) -> Color {
+    let preferred = opaque(preferred);
+    if contrast_ratio(background, preferred) >= 4.5 {
+        preferred
+    } else {
+        let dark = Color::from_rgb(0.10, 0.10, 0.12);
+        let light = Color::from_rgb(0.95, 0.95, 0.97);
+
+        if contrast_ratio(background, dark) >= contrast_ratio(background, light) {
+            dark
+        } else {
+            light
+        }
+    }
+}
+
+fn opaque(colour: Color) -> Color {
+    Color { a: 1.0, ..colour }
+}
+
+fn relative_luminance(colour: Color) -> f32 {
+    0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b
+}
+
+fn contrast_ratio(a: Color, b: Color) -> f32 {
+    let a = wcag_luminance(a);
+    let b = wcag_luminance(b);
+    let lighter = a.max(b);
+    let darker = a.min(b);
+
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn wcag_luminance(colour: Color) -> f32 {
+    let linear = |channel: f32| {
+        if channel <= 0.04045 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    };
+
+    0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
+}
+
+fn colour_distance(a: Color, b: Color) -> f32 {
+    let dr = a.r - b.r;
+    let dg = a.g - b.g;
+    let db = a.b - b.b;
+
+    (dr * dr + dg * dg + db * db).sqrt()
+}
+
 // -- Style enums ----------------------------------------------------------
 
 /// How the hour numerals are displayed on the face.
@@ -276,5 +448,23 @@ mod tests {
         let theme: ThemeConfig = toml::from_str("").expect("parse empty");
         assert_eq!(theme.numeral_style, NumeralStyle::Arabic);
         assert_eq!(theme.hand_style, HandStyle::Classic);
+    }
+
+    #[test]
+    fn window_chrome_soft_buttons_keep_readable_text_on_light_theme() {
+        let chrome = window_chrome(&ThemeConfig::classic());
+
+        assert!(contrast_ratio(chrome.accent_soft, chrome.accent_soft_text) >= 4.5);
+        assert!(contrast_ratio(chrome.success_soft, chrome.success_soft_text) >= 4.5);
+        assert!(contrast_ratio(chrome.danger_soft, chrome.danger_soft_text) >= 4.5);
+    }
+
+    #[test]
+    fn window_chrome_soft_buttons_keep_readable_text_on_transparent_theme() {
+        let chrome = window_chrome(&ThemeConfig::transparent());
+
+        assert!(contrast_ratio(chrome.accent_soft, chrome.accent_soft_text) >= 4.5);
+        assert!(contrast_ratio(chrome.success_soft, chrome.success_soft_text) >= 4.5);
+        assert!(contrast_ratio(chrome.danger_soft, chrome.danger_soft_text) >= 4.5);
     }
 }
