@@ -20,7 +20,7 @@ mod theme;
 mod tray;
 
 use iced::keyboard;
-use iced::widget::canvas;
+use iced::widget::{canvas, operation};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 
 /// Number of early ticks during which Linux window hints are retried.
@@ -172,6 +172,10 @@ enum Message {
     ToggleContextMenu,
     /// Dismiss the context menu (click-away or Escape).
     DismissMenu,
+    /// Move focus to the next control in the active control window.
+    FocusNextControl,
+    /// Move focus to the previous control in the active control window.
+    FocusPreviousControl,
     /// Switch to a named theme preset.
     SetTheme(String),
     /// Switch to a named clock size preset.
@@ -638,6 +642,20 @@ impl ClockApp {
                 let close_hover = self.close_hover_window();
                 Task::batch([close_control, close_hover])
             }
+            Message::FocusNextControl => {
+                if self.control_window.is_some() {
+                    operation::focus_next()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::FocusPreviousControl => {
+                if self.control_window.is_some() {
+                    operation::focus_previous()
+                } else {
+                    Task::none()
+                }
+            }
             Message::SetTheme(name) => {
                 self.config.theme = name;
                 self.config.theme_config = None;
@@ -832,12 +850,23 @@ impl ClockApp {
             _ => Message::NoOp,
         });
 
-        // Listen for Escape to dismiss overlays and Ctrl+Q to quit.
+        // Listen for Escape to dismiss overlays, Tab to traverse controls, and Ctrl+Q to quit.
         let keyboard_events = keyboard::listen().map(|event| match event {
             keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..
             } => Message::DismissMenu,
+            keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Tab),
+                modifiers,
+                ..
+            } => {
+                if modifiers.shift() {
+                    Message::FocusPreviousControl
+                } else {
+                    Message::FocusNextControl
+                }
+            }
             keyboard::Event::KeyPressed {
                 key,
                 modifiers,
