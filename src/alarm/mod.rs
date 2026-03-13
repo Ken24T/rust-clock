@@ -28,6 +28,7 @@ pub enum FaceActiveItemKind {
 pub struct FaceActiveItem {
     pub id: Uuid,
     pub label: String,
+    pub description: Option<String>,
     pub kind: FaceActiveItemKind,
     pub target: DateTime<Local>,
     pub remaining_text: String,
@@ -278,6 +279,12 @@ impl Alarm {
         Some(FaceActiveItem {
             id: self.id,
             label,
+            description: self
+                .message
+                .as_ref()
+                .map(|message| message.trim())
+                .filter(|message| !message.is_empty())
+                .map(ToOwned::to_owned),
             kind: match self.kind {
                 AlarmKind::AtTime { .. } => FaceActiveItemKind::Alarm,
                 AlarmKind::Timer { .. } => FaceActiveItemKind::Timer,

@@ -15,7 +15,7 @@ use crate::alarm::FaceActiveItem;
 use crate::theme::ThemeConfig;
 use crate::Message;
 
-use self::overlay::OverlayHitTarget;
+pub(crate) use self::overlay::{HoverWindowContent, OverlayHitTarget};
 
 /// Holds the clock state and rendering cache.
 pub struct ClockFace {
@@ -103,7 +103,9 @@ impl canvas::Program<Message> for ClockFace {
         let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
 
         if let Event::Mouse(mouse::Event::CursorLeft) = event {
-            return state.set_hovered_target(None).then(Action::request_redraw);
+            return state
+                .set_hovered_target(None)
+                .then(|| Action::publish(Message::HoverWindowChanged(None)));
         }
 
         if let Event::Mouse(mouse::Event::CursorMoved { .. }) = event {
@@ -113,7 +115,7 @@ impl canvas::Program<Message> for ClockFace {
 
             return state
                 .set_hovered_target(hovered_target)
-                .then(Action::request_redraw);
+                .then(|| Action::publish(Message::HoverWindowChanged(hovered_target)));
         }
 
         // Only respond to non-hover events when the cursor is inside the clock bounds.
@@ -139,7 +141,7 @@ impl canvas::Program<Message> for ClockFace {
 
     fn draw(
         &self,
-        state: &ClockFaceState,
+        _state: &ClockFaceState,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -151,10 +153,14 @@ impl canvas::Program<Message> for ClockFace {
 
             self.draw_face(frame, centre, radius);
             self.draw_hands(frame, centre, radius);
-            self.draw_overlay(frame, centre, radius, state.hovered_target);
         });
 
-        vec![clock]
+        let mut overlay = canvas::Frame::new(renderer, bounds.size());
+        let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
+        let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
+        self.draw_overlay(&mut overlay, centre, radius, None);
+
+        vec![clock, overlay.into_geometry()]
     }
 
     fn mouse_interaction(

@@ -102,13 +102,13 @@ Layer in pointer-aware detail without weakening the existing drag and context-me
 
 Phase 2 is now completed by the current hit-region model, canvas hover-state tracking, and bounded hover-detail treatment.
 
-The clock face can now distinguish visible item rows and the overflow suffix as separate logical targets, track the hovered target with redraws only when that target changes, and render a compact on-face hover detail panel. Overflow hover now shows aggregate detail instead of trying to enumerate hidden items.
+The clock face can now distinguish visible item rows and the overflow suffix as separate logical targets, track the hovered target with redraws only when that target changes, and route fuller detail into a detached reminder window so the dial stays readable. Overflow hover now shows aggregate detail instead of trying to enumerate hidden items, and minimal-size count badges can expose full listed detail through the detached window.
 
 ### Exit Criteria
 
 - hover details work without breaking left-drag or right-click menu behaviour
 - hover state stays stable as the clock ticks
-- detail rendering remains bounded to the face and does not require a separate window
+- detail rendering remains readable and does not compete with the dial itself
 
 ## Phase 3 — Small-Size Fallbacks And Polish
 

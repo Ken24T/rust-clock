@@ -26,16 +26,20 @@ const REDUCED_LANE_WIDTH_FACTOR: f32 = 0.96;
 const REDUCED_LANE_HEIGHT_FACTOR: f32 = 0.14;
 const REDUCED_LANE_VERTICAL_OFFSET_FACTOR: f32 = 0.58;
 const REDUCED_LANE_TEXT_SIZE_FACTOR: f32 = 0.10;
-const MINIMAL_INDICATOR_WIDTH_FACTOR: f32 = 0.54;
+const MINIMAL_INDICATOR_WIDTH_FACTOR: f32 = 0.40;
 const MINIMAL_INDICATOR_HEIGHT_FACTOR: f32 = 0.14;
-const MINIMAL_INDICATOR_VERTICAL_OFFSET_FACTOR: f32 = 0.62;
+const MINIMAL_INDICATOR_VERTICAL_OFFSET_FACTOR: f32 = 0.54;
 const MINIMAL_INDICATOR_TEXT_SIZE_FACTOR: f32 = 0.09;
 const HOVER_DETAIL_WIDTH_FACTOR: f32 = 1.08;
-const HOVER_DETAIL_HEIGHT_FACTOR: f32 = 0.28;
+const HOVER_DETAIL_HEIGHT_FACTOR: f32 = 0.36;
 const HOVER_DETAIL_VERTICAL_GAP_FACTOR: f32 = 0.08;
 const HOVER_DETAIL_TITLE_SIZE_FACTOR: f32 = 0.10;
 const HOVER_DETAIL_SUBTITLE_SIZE_FACTOR: f32 = 0.075;
-const HOVER_DETAIL_LINE_SPACING_FACTOR: f32 = 1.15;
+const HOVER_DETAIL_LINE_SPACING_FACTOR: f32 = 1.28;
+const HOVER_DETAIL_HORIZONTAL_PADDING_FACTOR: f32 = 0.08;
+const HOVER_DETAIL_VERTICAL_PADDING_FACTOR: f32 = 0.07;
+const HOVER_DETAIL_TITLE_GAP_FACTOR: f32 = 0.06;
+const HOVER_DETAIL_DIVIDER_GAP_FACTOR: f32 = 0.035;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SummaryLaneLayout {
@@ -54,12 +58,13 @@ struct MinimalIndicatorLayout {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OverlayHitTarget {
+pub(crate) enum OverlayHitTarget {
     SummaryItem(Uuid),
     OverflowIndicator {
         anchor_id: Uuid,
         hidden_count: usize,
     },
+    MinimalIndicator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,7 +77,13 @@ struct OverlayHitRegion {
 struct HoverDetail {
     anchor_index: usize,
     title: String,
-    subtitle: String,
+    detail_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HoverWindowContent {
+    pub title: String,
+    pub detail_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -113,32 +124,32 @@ impl ClockFace {
             return;
         };
 
+        let style = HoverDetailStyle {
+            face_colour: self.theme.face_colour.into(),
+            border_colour: self.theme.border_colour.into(),
+            text_colour: self.theme.numeral_colour.into(),
+            shadow_colour: self.theme.shadow_colour.into(),
+        };
+
+        if hovered_target.is_some() {
+            draw_hover_backdrop(frame, centre, radius, style);
+        }
+
         match layout {
             OverlayLayout::Summary(layout) => {
                 draw_summary_lane(
                     frame,
                     &self.active_items,
                     &layout,
-                    self.theme.numeral_colour.into(),
-                    self.theme.shadow_colour.into(),
+                    style.text_colour,
+                    style.shadow_colour,
                     radius,
                 );
 
                 if let Some(detail) =
                     hover_detail(&self.active_items, layout.line_count, hovered_target)
                 {
-                    draw_hover_detail(
-                        frame,
-                        &layout,
-                        radius,
-                        detail,
-                        HoverDetailStyle {
-                            face_colour: self.theme.face_colour.into(),
-                            border_colour: self.theme.border_colour.into(),
-                            text_colour: self.theme.numeral_colour.into(),
-                            shadow_colour: self.theme.shadow_colour.into(),
-                        },
-                    );
+                    draw_hover_detail(frame, &layout, radius, detail, style);
                 }
             }
             OverlayLayout::MinimalIndicator(layout) => {
@@ -146,14 +157,19 @@ impl ClockFace {
                     frame,
                     &layout,
                     &minimal_indicator_text(self.active_items.len()),
-                    HoverDetailStyle {
-                        face_colour: self.theme.face_colour.into(),
-                        border_colour: self.theme.border_colour.into(),
-                        text_colour: self.theme.numeral_colour.into(),
-                        shadow_colour: self.theme.shadow_colour.into(),
-                    },
+                    style,
                     radius,
                 );
+
+                if hovered_target == Some(OverlayHitTarget::MinimalIndicator) {
+                    draw_minimal_indicator_hover_detail(
+                        frame,
+                        &layout,
+                        radius,
+                        collapsed_hover_detail(&self.active_items),
+                        style,
+                    );
+                }
             }
         }
     }
@@ -168,6 +184,14 @@ impl ClockFace {
             .into_iter()
             .find(|region| rectangle_contains_point(region.bounds, cursor_position))
             .map(|region| region.target)
+    }
+
+    pub(crate) fn hover_window_content(
+        &self,
+        radius: f32,
+        hovered_target: Option<OverlayHitTarget>,
+    ) -> Option<HoverWindowContent> {
+        hover_window_content(&self.active_items, radius, hovered_target)
     }
 }
 
@@ -385,6 +409,19 @@ fn draw_minimal_indicator(
     });
 }
 
+fn draw_hover_backdrop(frame: &mut Frame, centre: Point, radius: f32, style: HoverDetailStyle) {
+    let face = Path::circle(centre, radius);
+    frame.fill(&face, hover_backdrop_colour(style));
+    frame.stroke(
+        &face,
+        Stroke {
+            style: stroke::Style::Solid(style.border_colour),
+            width: 1.5,
+            ..Stroke::default()
+        },
+    );
+}
+
 fn lane_text_positions(
     x: f32,
     y: f32,
@@ -424,7 +461,13 @@ fn overlay_hit_regions(
     };
 
     let OverlayLayout::Summary(layout) = layout else {
-        return Vec::new();
+        return vec![OverlayHitRegion {
+            target: OverlayHitTarget::MinimalIndicator,
+            bounds: match layout {
+                OverlayLayout::MinimalIndicator(layout) => layout.bounds,
+                OverlayLayout::Summary(_) => unreachable!(),
+            },
+        }];
     };
 
     let summaries = summary_lane_texts(items, layout.max_chars, layout.line_count);
@@ -461,7 +504,7 @@ fn overlay_hit_regions(
 
     regions.sort_by_key(|region| match region.target {
         OverlayHitTarget::OverflowIndicator { .. } => 0,
-        OverlayHitTarget::SummaryItem(_) => 1,
+        OverlayHitTarget::SummaryItem(_) | OverlayHitTarget::MinimalIndicator => 1,
     });
 
     regions
@@ -536,20 +579,21 @@ fn summary_lane_texts(
 }
 
 fn summary_lane_text(item: &FaceActiveItem, max_chars: usize, trailing_suffix: &str) -> String {
-    let suffix = format!(" - {}{trailing_suffix}", item.remaining_text);
-    let minimum_label_chars = 6;
-
-    if max_chars <= suffix.chars().count() + minimum_label_chars {
-        return truncate_text(
-            &format!("{}{}", item.remaining_text, trailing_suffix),
-            max_chars,
-        );
+    if trailing_suffix.is_empty() {
+        return truncate_text(&item.label, max_chars);
     }
 
-    let label_budget = max_chars.saturating_sub(suffix.chars().count());
+    let suffix_chars = trailing_suffix.chars().count();
+    let minimum_label_chars = 4;
+
+    if max_chars <= suffix_chars + minimum_label_chars {
+        return truncate_text(trailing_suffix.trim_start(), max_chars);
+    }
+
+    let label_budget = max_chars.saturating_sub(suffix_chars);
     let label = truncate_text(&item.label, label_budget);
 
-    format!("{label}{suffix}")
+    format!("{label}{trailing_suffix}")
 }
 
 fn hover_detail(
@@ -568,14 +612,7 @@ fn hover_detail(
             .map(|(anchor_index, item)| HoverDetail {
                 anchor_index,
                 title: item.label.clone(),
-                subtitle: format!(
-                    "{} • {}",
-                    match item.kind {
-                        FaceActiveItemKind::Alarm => "alarm",
-                        FaceActiveItemKind::Timer => "timer",
-                    },
-                    item.remaining_text
-                ),
+                detail_lines: item_detail_lines(item),
             }),
         OverlayHitTarget::OverflowIndicator {
             anchor_id,
@@ -595,10 +632,66 @@ fn hover_detail(
                         "{hidden_count} more active reminder{}",
                         if hidden_count == 1 { "" } else { "s" }
                     ),
-                    subtitle: "Open Alarms & Timers to view the full list".to_string(),
+                    detail_lines: vec!["Hover individual items for quick detail".to_string()],
                 })
         }
+        OverlayHitTarget::MinimalIndicator => None,
     }
+}
+
+fn item_detail_lines(item: &FaceActiveItem) -> Vec<String> {
+    let mut lines = Vec::with_capacity(2);
+    lines.push(format!(
+        "{} • {}",
+        match item.kind {
+            FaceActiveItemKind::Alarm => "alarm",
+            FaceActiveItemKind::Timer => "timer",
+        },
+        item.remaining_text
+    ));
+
+    if let Some(description) = &item.description {
+        lines.push(description.clone());
+    }
+
+    lines
+}
+
+fn collapsed_hover_detail(items: &[FaceActiveItem]) -> HoverDetail {
+    HoverDetail {
+        anchor_index: 0,
+        title: format!(
+            "{} active reminder{}",
+            items.len(),
+            if items.len() == 1 { "" } else { "s" }
+        ),
+        detail_lines: items
+            .iter()
+            .map(|item| format!("{} • {}", item.label, item.remaining_text))
+            .collect(),
+    }
+}
+
+fn hover_window_content(
+    items: &[FaceActiveItem],
+    radius: f32,
+    hovered_target: Option<OverlayHitTarget>,
+) -> Option<HoverWindowContent> {
+    let detail = match overlay_layout_mode(radius)? {
+        OverlayLayoutMode::FullLane => {
+            hover_detail(items, MAX_VISIBLE_SUMMARY_LINES, hovered_target)
+        }
+        OverlayLayoutMode::ReducedLane => hover_detail(items, 1, hovered_target),
+        OverlayLayoutMode::MinimalIndicator => match hovered_target {
+            Some(OverlayHitTarget::MinimalIndicator) => Some(collapsed_hover_detail(items)),
+            _ => None,
+        },
+    }?;
+
+    Some(HoverWindowContent {
+        title: detail.title,
+        detail_lines: detail.detail_lines,
+    })
 }
 
 fn draw_hover_detail(
@@ -608,24 +701,104 @@ fn draw_hover_detail(
     detail: HoverDetail,
     style: HoverDetailStyle,
 ) {
-    let width = radius * HOVER_DETAIL_WIDTH_FACTOR;
-    let height = radius * HOVER_DETAIL_HEIGHT_FACTOR;
+    let (width, height) = hover_detail_size(radius, &detail);
     let gap = radius * HOVER_DETAIL_VERTICAL_GAP_FACTOR;
+    let Point { x, y } = hover_detail_origin(
+        layout.bounds,
+        layout.text_positions[detail.anchor_index].x,
+        width,
+        height,
+        gap,
+    );
+
+    draw_hover_detail_panel(
+        frame,
+        Point::new(x, y),
+        width,
+        height,
+        radius,
+        detail,
+        style,
+    );
+}
+
+fn draw_minimal_indicator_hover_detail(
+    frame: &mut Frame,
+    layout: &MinimalIndicatorLayout,
+    radius: f32,
+    detail: HoverDetail,
+    style: HoverDetailStyle,
+) {
+    let (width, height) = hover_detail_size(radius, &detail);
+    let gap = radius * HOVER_DETAIL_VERTICAL_GAP_FACTOR;
+    let Point { x, y } =
+        hover_detail_origin(layout.bounds, layout.text_position.x, width, height, gap);
+
+    draw_hover_detail_panel(
+        frame,
+        Point::new(x, y),
+        width,
+        height,
+        radius,
+        detail,
+        style,
+    );
+}
+
+fn draw_hover_detail_panel(
+    frame: &mut Frame,
+    origin: Point,
+    width: f32,
+    height: f32,
+    radius: f32,
+    detail: HoverDetail,
+    style: HoverDetailStyle,
+) {
+    let Point { x, y } = origin;
     let title_size = (radius * HOVER_DETAIL_TITLE_SIZE_FACTOR).clamp(12.0, 20.0);
-    let subtitle_size = (radius * HOVER_DETAIL_SUBTITLE_SIZE_FACTOR).clamp(10.0, 15.0);
-    let anchor_x = layout.text_positions[detail.anchor_index].x;
-    let min_x = layout.bounds.x;
-    let max_x = layout.bounds.x + layout.bounds.width - width;
-    let x = (anchor_x - width / 2.0).clamp(min_x, max_x);
-    let y = layout.bounds.y - height - gap;
+    let subtitle_size = subtitle_size_for_radius(radius);
+    let horizontal_padding = radius * HOVER_DETAIL_HORIZONTAL_PADDING_FACTOR;
+    let vertical_padding = radius * HOVER_DETAIL_VERTICAL_PADDING_FACTOR;
+    let title_gap = radius * HOVER_DETAIL_TITLE_GAP_FACTOR;
+    let divider_gap = radius * HOVER_DETAIL_DIVIDER_GAP_FACTOR;
+    let body_step = subtitle_size * HOVER_DETAIL_LINE_SPACING_FACTOR;
 
     let panel = Path::rectangle(Point::new(x, y), Size::new(width, height));
-    let mut background = style.face_colour;
-    background.a = background.a.max(0.88);
+    let backplate = hover_panel_backplate(style);
+    let background = hover_panel_background(style);
 
+    frame.fill(&panel, backplate);
     frame.fill(&panel, background);
     frame.stroke(
         &panel,
+        Stroke {
+            style: stroke::Style::Solid(style.border_colour),
+            width: 1.25,
+            ..Stroke::default()
+        },
+    );
+
+    let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
+    let title_y = y + vertical_padding + title_size / 2.0;
+    let divider_y = y + vertical_padding + title_size + title_gap;
+    let mut current_y = divider_y + divider_gap + subtitle_size / 2.0;
+
+    draw_hover_text_line(
+        frame,
+        &detail.title,
+        Point::new(x + width / 2.0, title_y),
+        title_size,
+        style,
+        shadow_offset,
+        alignment::Horizontal::Center,
+    );
+
+    let divider = Path::line(
+        Point::new(x + horizontal_padding, divider_y),
+        Point::new(x + width - horizontal_padding, divider_y),
+    );
+    frame.stroke(
+        &divider,
         Stroke {
             style: stroke::Style::Solid(style.border_colour),
             width: 1.0,
@@ -633,37 +806,144 @@ fn draw_hover_detail(
         },
     );
 
-    let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
-    let centre_x = x + width / 2.0;
-    let centre_y = y + height / 2.0;
-    let line_offset = title_size * HOVER_DETAIL_LINE_SPACING_FACTOR / 2.0;
-    let title_position = Point::new(centre_x, centre_y - line_offset);
-    let subtitle_position = Point::new(centre_x, centre_y + line_offset * 0.75);
+    for line in &detail.detail_lines {
+        draw_hover_text_line(
+            frame,
+            line,
+            Point::new(x + horizontal_padding, current_y),
+            subtitle_size,
+            style,
+            shadow_offset,
+            alignment::Horizontal::Left,
+        );
+        current_y += body_step;
+    }
+}
 
-    for (content, position, size) in [
-        (detail.title, title_position, title_size),
-        (detail.subtitle, subtitle_position, subtitle_size),
+fn hover_panel_backplate(style: HoverDetailStyle) -> Color {
+    if relative_luminance(opaque(style.face_colour)) >= 0.6 {
+        Color::from_rgb(0.94, 0.94, 0.92)
+    } else {
+        Color::from_rgb(0.14, 0.15, 0.17)
+    }
+}
+
+fn hover_backdrop_colour(style: HoverDetailStyle) -> Color {
+    let backplate = hover_panel_backplate(style);
+
+    if relative_luminance(backplate) >= 0.6 {
+        mix_colours(backplate, Color::from_rgb(1.0, 1.0, 1.0), 0.08)
+    } else {
+        mix_colours(backplate, Color::from_rgb(0.05, 0.06, 0.08), 0.10)
+    }
+}
+
+fn hover_panel_background(style: HoverDetailStyle) -> Color {
+    let base = hover_panel_backplate(style);
+    let accent = if relative_luminance(base) >= 0.6 {
+        mix_colours(base, opaque(style.border_colour), 0.10)
+    } else {
+        mix_colours(base, opaque(style.text_colour), 0.08)
+    };
+
+    Color { a: 1.0, ..accent }
+}
+
+fn mix_colours(base: Color, accent: Color, amount: f32) -> Color {
+    let amount = amount.clamp(0.0, 1.0);
+
+    Color {
+        r: base.r + (accent.r - base.r) * amount,
+        g: base.g + (accent.g - base.g) * amount,
+        b: base.b + (accent.b - base.b) * amount,
+        a: base.a + (accent.a - base.a) * amount,
+    }
+}
+
+fn opaque(colour: Color) -> Color {
+    Color { a: 1.0, ..colour }
+}
+
+fn relative_luminance(colour: Color) -> f32 {
+    0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b
+}
+
+fn hover_detail_size(radius: f32, detail: &HoverDetail) -> (f32, f32) {
+    let title_size = (radius * HOVER_DETAIL_TITLE_SIZE_FACTOR).clamp(12.0, 20.0);
+    let subtitle_size = subtitle_size_for_radius(radius);
+    let horizontal_padding = radius * HOVER_DETAIL_HORIZONTAL_PADDING_FACTOR;
+    let vertical_padding = radius * HOVER_DETAIL_VERTICAL_PADDING_FACTOR;
+    let title_gap = radius * HOVER_DETAIL_TITLE_GAP_FACTOR;
+    let divider_gap = radius * HOVER_DETAIL_DIVIDER_GAP_FACTOR;
+    let body_step = subtitle_size * HOVER_DETAIL_LINE_SPACING_FACTOR;
+    let longest_line_width = std::iter::once((&detail.title, title_size))
+        .chain(detail.detail_lines.iter().map(|line| (line, subtitle_size)))
+        .map(|(line, size)| estimated_text_width(line, size))
+        .fold(0.0, f32::max);
+    let min_width = radius * HOVER_DETAIL_WIDTH_FACTOR;
+    let width = (longest_line_width + horizontal_padding * 2.0).max(min_width);
+    let body_height = if detail.detail_lines.is_empty() {
+        0.0
+    } else {
+        subtitle_size + body_step * detail.detail_lines.len().saturating_sub(1) as f32
+    };
+    let min_height = radius * HOVER_DETAIL_HEIGHT_FACTOR;
+    let height =
+        (vertical_padding * 2.0 + title_size + title_gap + divider_gap * 2.0 + body_height)
+            .max(min_height);
+
+    (width, height)
+}
+
+fn subtitle_size_for_radius(radius: f32) -> f32 {
+    (radius * HOVER_DETAIL_SUBTITLE_SIZE_FACTOR).clamp(10.0, 15.0)
+}
+
+fn draw_hover_text_line(
+    frame: &mut Frame,
+    content: &str,
+    position: Point,
+    size: f32,
+    style: HoverDetailStyle,
+    shadow_offset: f32,
+    align_x: alignment::Horizontal,
+) {
+    for (colour, draw_position) in [
+        (
+            style.shadow_colour,
+            Point::new(position.x + shadow_offset, position.y + shadow_offset),
+        ),
+        (style.text_colour, position),
     ] {
         frame.fill_text(canvas::Text {
-            content: content.clone(),
-            position: Point::new(position.x + shadow_offset, position.y + shadow_offset),
+            content: content.to_string(),
+            position: draw_position,
             size: size.into(),
-            color: style.shadow_colour,
-            align_x: alignment::Horizontal::Center.into(),
-            align_y: alignment::Vertical::Center,
-            ..canvas::Text::default()
-        });
-
-        frame.fill_text(canvas::Text {
-            content,
-            position,
-            size: size.into(),
-            color: style.text_colour,
-            align_x: alignment::Horizontal::Center.into(),
+            color: colour,
+            align_x: align_x.into(),
             align_y: alignment::Vertical::Center,
             ..canvas::Text::default()
         });
     }
+}
+
+fn hover_detail_origin(
+    anchor_bounds: Rectangle,
+    anchor_x: f32,
+    width: f32,
+    height: f32,
+    gap: f32,
+) -> Point {
+    let min_x = anchor_bounds.x;
+    let max_x = anchor_bounds.x + anchor_bounds.width - width;
+    let x = if max_x <= min_x {
+        anchor_bounds.x + (anchor_bounds.width - width) / 2.0
+    } else {
+        (anchor_x - width / 2.0).clamp(min_x, max_x)
+    };
+    let y = anchor_bounds.y - height - gap;
+
+    Point::new(x, y)
 }
 
 fn truncate_text(text: &str, max_chars: usize) -> String {
@@ -684,19 +964,23 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        hover_detail, minimal_indicator_text, overlay_hit_regions, overlay_layout,
-        overlay_layout_mode, rectangle_contains_point, summary_lane_layout, summary_lane_text,
-        summary_lane_texts, HoverDetail, OverlayHitTarget, OverlayLayout, OverlayLayoutMode,
+        collapsed_hover_detail, hover_backdrop_colour, hover_detail, hover_detail_origin,
+        hover_detail_size, hover_panel_background, hover_panel_backplate, minimal_indicator_text,
+        overlay_hit_regions, overlay_layout, overlay_layout_mode, rectangle_contains_point,
+        summary_lane_layout, summary_lane_text, summary_lane_texts, HoverDetail, HoverDetailStyle,
+        OverlayHitTarget, OverlayLayout, OverlayLayoutMode, HOVER_DETAIL_VERTICAL_GAP_FACTOR,
+        HOVER_DETAIL_WIDTH_FACTOR,
     };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
-    use iced::Point;
+    use iced::{Color, Point};
     use uuid::Uuid;
 
     fn sample_item(label: &str, remaining_text: &str) -> FaceActiveItem {
         FaceActiveItem {
             id: Uuid::new_v4(),
             label: label.to_string(),
+            description: None,
             kind: FaceActiveItemKind::Timer,
             target: Local::now(),
             remaining_text: remaining_text.to_string(),
@@ -769,7 +1053,7 @@ mod tests {
     #[test]
     fn summary_lane_text_preserves_remaining_time() {
         let item = sample_item("Tea", "4m 10s");
-        assert_eq!(summary_lane_text(&item, 24, ""), "Tea - 4m 10s");
+        assert_eq!(summary_lane_text(&item, 24, ""), "Tea");
     }
 
     #[test]
@@ -777,7 +1061,7 @@ mod tests {
         let item = sample_item("Very long reminder label", "12m 0s");
         let summary = summary_lane_text(&item, 18, "");
 
-        assert!(summary.ends_with(" - 12m 0s"));
+        assert!(!summary.contains("12m 0s"));
         assert!(summary.contains("..."));
     }
 
@@ -792,8 +1076,8 @@ mod tests {
         let summaries = summary_lane_texts(&items, 28, 2);
 
         assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0], "Tea - 4m 10s");
-        assert!(summaries[1].ends_with(" - 8m 0s +1 more"));
+        assert_eq!(summaries[0], "Tea");
+        assert_eq!(summaries[1], "Laundry +1 more");
     }
 
     #[test]
@@ -877,11 +1161,15 @@ mod tests {
     }
 
     #[test]
-    fn overlay_hit_regions_are_hidden_in_minimal_mode() {
+    fn overlay_hit_regions_include_minimal_indicator_target() {
         let items = vec![sample_item("Tea", "4m 10s")];
         let regions = overlay_hit_regions(&items, Point::new(75.0, 75.0), 71.25);
 
-        assert!(regions.is_empty());
+        assert_eq!(regions.len(), 1);
+        assert!(matches!(
+            regions[0].target,
+            OverlayHitTarget::MinimalIndicator
+        ));
     }
 
     #[test]
@@ -919,8 +1207,29 @@ mod tests {
             HoverDetail {
                 anchor_index: 0,
                 title: "Tea".to_string(),
-                subtitle: "timer • 4m 10s".to_string(),
+                detail_lines: vec!["timer • 4m 10s".to_string()],
             }
+        );
+    }
+
+    #[test]
+    fn hover_detail_includes_description_when_present() {
+        let mut item = sample_item("Tea", "4m 10s");
+        item.description = Some("Steep the green tea".to_string());
+
+        let detail = hover_detail(
+            &[item.clone()],
+            1,
+            Some(OverlayHitTarget::SummaryItem(item.id)),
+        )
+        .expect("expected item hover detail");
+
+        assert_eq!(
+            detail.detail_lines,
+            vec![
+                "timer • 4m 10s".to_string(),
+                "Steep the green tea".to_string()
+            ]
         );
     }
 
@@ -946,9 +1255,146 @@ mod tests {
             HoverDetail {
                 anchor_index: 1,
                 title: "1 more active reminder".to_string(),
-                subtitle: "Open Alarms & Timers to view the full list".to_string(),
+                detail_lines: vec!["Hover individual items for quick detail".to_string()],
             }
         );
+    }
+
+    #[test]
+    fn collapsed_hover_detail_lists_all_active_items() {
+        let items = vec![
+            sample_item("Tea", "4m 10s"),
+            sample_item("Laundry", "8m 0s"),
+        ];
+
+        let detail = collapsed_hover_detail(&items);
+
+        assert_eq!(detail.title, "2 active reminders");
+        assert_eq!(
+            detail.detail_lines,
+            vec!["Tea • 4m 10s".to_string(), "Laundry • 8m 0s".to_string()]
+        );
+    }
+
+    #[test]
+    fn hover_detail_origin_is_safe_when_panel_is_wider_than_lane() {
+        let centre = Point::new(125.0, 125.0);
+        let layout = summary_lane_layout(centre, 119.0, 1).expect("expected full lane layout");
+        let detail = HoverDetail {
+            anchor_index: 0,
+            title: "Tea".to_string(),
+            detail_lines: vec!["timer • 4m 10s".to_string()],
+        };
+        let (width, height) = hover_detail_size(119.0, &detail);
+        let gap = 119.0 * HOVER_DETAIL_VERTICAL_GAP_FACTOR;
+
+        let origin = hover_detail_origin(
+            layout.bounds,
+            layout.text_positions[detail.anchor_index].x,
+            width,
+            height,
+            gap,
+        );
+
+        assert!(origin.x.is_finite());
+        assert!(origin.y.is_finite());
+        assert_eq!(
+            origin.x,
+            layout.bounds.x + (layout.bounds.width - width) / 2.0
+        );
+    }
+
+    #[test]
+    fn hover_detail_size_grows_for_multi_line_lists() {
+        let single = HoverDetail {
+            anchor_index: 0,
+            title: "Tea".to_string(),
+            detail_lines: vec!["timer • 4m 10s".to_string()],
+        };
+        let multi = HoverDetail {
+            anchor_index: 0,
+            title: "4 active reminders".to_string(),
+            detail_lines: vec![
+                "Tea • 4m 10s".to_string(),
+                "Laundry • 8m 0s".to_string(),
+                "Meeting • 22m 0s".to_string(),
+            ],
+        };
+
+        let (single_width, single_height) = hover_detail_size(71.25, &single);
+        let (multi_width, multi_height) = hover_detail_size(71.25, &multi);
+
+        assert!(single_width >= 71.25 * HOVER_DETAIL_WIDTH_FACTOR);
+        assert!(multi_height > single_height);
+        assert!(multi_width >= single_width);
+    }
+
+    #[test]
+    fn hover_panel_background_is_opaque_and_tinted_for_light_themes() {
+        let style = HoverDetailStyle {
+            face_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.9),
+            border_colour: Color::from_rgba(0.2, 0.2, 0.2, 1.0),
+            text_colour: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+        };
+        let backplate = hover_panel_backplate(style);
+        let background = hover_panel_background(style);
+
+        assert_eq!(backplate.a, 1.0);
+        assert_eq!(background.a, 1.0);
+        assert_eq!(backplate, Color::from_rgb(0.94, 0.94, 0.92));
+        assert!(background.r <= backplate.r);
+        assert!(background.g <= backplate.g);
+        assert!(background.b <= backplate.b);
+    }
+
+    #[test]
+    fn hover_panel_background_is_opaque_and_tinted_for_dark_themes() {
+        let style = HoverDetailStyle {
+            face_colour: Color::from_rgba(0.12, 0.12, 0.15, 0.92),
+            border_colour: Color::from_rgba(0.4, 0.4, 0.45, 1.0),
+            text_colour: Color::from_rgba(0.85, 0.85, 0.85, 1.0),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+        };
+        let backplate = hover_panel_backplate(style);
+        let background = hover_panel_background(style);
+
+        assert_eq!(backplate.a, 1.0);
+        assert_eq!(background.a, 1.0);
+        assert_eq!(backplate, Color::from_rgb(0.14, 0.15, 0.17));
+        assert!(background.r >= backplate.r);
+        assert!(background.g >= backplate.g);
+        assert!(background.b >= backplate.b);
+    }
+
+    #[test]
+    fn hover_backdrop_colour_stays_opaque_for_light_themes() {
+        let colour = hover_backdrop_colour(HoverDetailStyle {
+            face_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.9),
+            border_colour: Color::from_rgba(0.2, 0.2, 0.2, 1.0),
+            text_colour: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+        });
+
+        assert_eq!(colour.a, 1.0);
+        assert!(colour.r >= 0.94);
+        assert!(colour.g >= 0.94);
+        assert!(colour.b >= 0.92);
+    }
+
+    #[test]
+    fn hover_backdrop_colour_stays_opaque_for_dark_themes() {
+        let colour = hover_backdrop_colour(HoverDetailStyle {
+            face_colour: Color::from_rgba(0.12, 0.12, 0.15, 0.92),
+            border_colour: Color::from_rgba(0.4, 0.4, 0.45, 1.0),
+            text_colour: Color::from_rgba(0.85, 0.85, 0.85, 1.0),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+        });
+
+        assert_eq!(colour.a, 1.0);
+        assert!(colour.r <= 0.14);
+        assert!(colour.g <= 0.15);
+        assert!(colour.b <= 0.17);
     }
 
     #[test]

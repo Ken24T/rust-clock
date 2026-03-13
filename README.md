@@ -7,6 +7,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Live analog clock face with hour, minute, and optional second hands
 - Optional weekday and day-of-month display on the clock face
 - Active reminder summary shown on the clock face for medium and large clocks, with compact multi-item overflow
+- Detached reminder detail window on hover so full reminder text stays readable off the dial
 - Transparent, borderless main window intended to sit below normal windows
 - Drag-to-move clock placement with saved position
 - Right-click settings window for theme, size, and display toggles
@@ -80,6 +81,8 @@ The alarms panel supports:
 - clearing fired items
 
 When an alarm fires, the current app behaviour is to play the built-in generated beep pattern and send a desktop notification.
+
+When reminders are active, the clock face keeps a compact summary on the dial and opens a separate reminder detail window on hover instead of layering long callouts over the clock face itself.
 
 ### Tray Menu
 

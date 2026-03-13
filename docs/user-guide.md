@@ -97,7 +97,7 @@ If you have an active reminder, the main clock face now keeps some reminder pres
 
 Intermediate clock sizes switch to a reduced single-line summary so the face stays readable without dropping the overlay entirely. The smallest clock sizes show a compact active-count badge instead of item-by-item text.
 
-Hovering a visible reminder summary still shows a compact detail panel on the clock face. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders instead of listing them individually. The minimal count badge does not expose hover detail.
+Hovering a visible reminder summary opens a separate reminder detail window beside the clock instead of drawing the full callout over the dial. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders in that same detached window, and the minimal count badge also uses the detached reminder window for its listed detail view.
 
 ### Quick Timers
 
