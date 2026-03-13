@@ -34,6 +34,7 @@ use clock_face::{ClockFace, HoverWindowContent, OverlayHitTarget};
 use config::AppConfig;
 use context_menu::ContextMenu;
 use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
+use theme::window_chrome;
 
 pub fn main() -> iced::Result {
     let config = AppConfig::load();
@@ -77,18 +78,33 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
 }
 
 /// Application theme: transparent background so the desktop shows through.
-fn clock_theme(_app: &ClockApp, _window: window::Id) -> iced::Theme {
-    iced::Theme::custom(
-        "Clock".to_string(),
-        iced::theme::Palette {
-            background: Color::TRANSPARENT,
-            text: Color::WHITE,
-            primary: Color::from_rgb(0.5, 0.5, 0.5),
-            success: Color::from_rgb(0.0, 1.0, 0.0),
-            danger: Color::from_rgb(1.0, 0.0, 0.0),
-            warning: Color::from_rgb(1.0, 0.6, 0.0),
-        },
-    )
+fn clock_theme(app: &ClockApp, window: window::Id) -> iced::Theme {
+    if Some(window) == app.control_window || Some(window) == app.hover_window {
+        let chrome = window_chrome(&app.config.resolved_theme());
+        iced::Theme::custom(
+            "Clock Window".to_string(),
+            iced::theme::Palette {
+                background: chrome.panel_background,
+                text: chrome.text,
+                primary: chrome.accent,
+                success: chrome.success,
+                danger: chrome.danger,
+                warning: chrome.warning,
+            },
+        )
+    } else {
+        iced::Theme::custom(
+            "Clock".to_string(),
+            iced::theme::Palette {
+                background: Color::TRANSPARENT,
+                text: Color::WHITE,
+                primary: Color::from_rgb(0.5, 0.5, 0.5),
+                success: Color::from_rgb(0.0, 1.0, 0.0),
+                danger: Color::from_rgb(1.0, 0.0, 0.0),
+                warning: Color::from_rgb(1.0, 0.6, 0.0),
+            },
+        )
+    }
 }
 
 fn window_title(app: &ClockApp, window: window::Id) -> String {
@@ -696,19 +712,21 @@ impl ClockApp {
     }
 
     fn view(&self, window: window::Id) -> Element<'_, Message> {
+        let chrome = window_chrome(&self.config.resolved_theme());
+
         if Some(window) == self.hover_window {
             if let Some(content) = &self.hover_window_content {
-                hover_panel::hover_panel(content)
+                hover_panel::hover_panel(content, chrome)
             } else {
                 iced::widget::text("").into()
             }
         } else if Some(window) == self.control_window {
             match self.control_window_content {
                 Some(ControlWindowContent::AlarmPanel) => {
-                    alarm_panel::alarm_panel(&self.alarm_manager, &self.alarm_form)
+                    alarm_panel::alarm_panel(&self.alarm_manager, &self.alarm_form, chrome)
                 }
                 Some(ControlWindowContent::Menu) => {
-                    ContextMenu::widget(&self.config, &self.alarm_manager)
+                    ContextMenu::widget(&self.config, &self.alarm_manager, chrome)
                 }
                 None => canvas(&self.clock_face).width(Fill).height(Fill).into(),
             }

@@ -367,22 +367,14 @@ fn draw_minimal_indicator(
     style: HoverDetailStyle,
     radius: f32,
 ) {
+    let (backplate, background, text_colour) = minimal_indicator_colours(style);
     let panel = Path::rectangle(
         Point::new(layout.bounds.x, layout.bounds.y),
         Size::new(layout.bounds.width, layout.bounds.height),
     );
-    let mut background = style.face_colour;
-    background.a = background.a.max(0.84);
 
+    frame.fill(&panel, backplate);
     frame.fill(&panel, background);
-    frame.stroke(
-        &panel,
-        Stroke {
-            style: stroke::Style::Solid(style.border_colour),
-            width: 1.0,
-            ..Stroke::default()
-        },
-    );
 
     let shadow_offset = radius * SUMMARY_LANE_SHADOW_OFFSET_FACTOR;
     frame.fill_text(canvas::Text {
@@ -402,11 +394,19 @@ fn draw_minimal_indicator(
         content: text.to_string(),
         position: layout.text_position,
         size: layout.text_size.into(),
-        color: style.text_colour,
+        color: text_colour,
         align_x: alignment::Horizontal::Center.into(),
         align_y: alignment::Vertical::Center,
         ..canvas::Text::default()
     });
+}
+
+fn minimal_indicator_colours(style: HoverDetailStyle) -> (Color, Color, Color) {
+    let backplate = hover_panel_backplate(style);
+    let background = hover_panel_background(style);
+    let text = readable_text(background, opaque(style.text_colour));
+
+    (backplate, background, text)
 }
 
 fn draw_hover_backdrop(frame: &mut Frame, centre: Point, radius: f32, style: HoverDetailStyle) {
@@ -868,6 +868,44 @@ fn relative_luminance(colour: Color) -> f32 {
     0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b
 }
 
+fn readable_text(background: Color, preferred: Color) -> Color {
+    let preferred = opaque(preferred);
+
+    if contrast_ratio(background, preferred) >= 4.5 {
+        preferred
+    } else {
+        let dark = Color::from_rgb(0.10, 0.10, 0.12);
+        let light = Color::from_rgb(0.95, 0.95, 0.97);
+
+        if contrast_ratio(background, dark) >= contrast_ratio(background, light) {
+            dark
+        } else {
+            light
+        }
+    }
+}
+
+fn contrast_ratio(a: Color, b: Color) -> f32 {
+    let a = wcag_luminance(a);
+    let b = wcag_luminance(b);
+    let lighter = a.max(b);
+    let darker = a.min(b);
+
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+fn wcag_luminance(colour: Color) -> f32 {
+    let linear = |channel: f32| {
+        if channel <= 0.04045 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    };
+
+    0.2126 * linear(colour.r) + 0.7152 * linear(colour.g) + 0.0722 * linear(colour.b)
+}
+
 fn hover_detail_size(radius: f32, detail: &HoverDetail) -> (f32, f32) {
     let title_size = (radius * HOVER_DETAIL_TITLE_SIZE_FACTOR).clamp(12.0, 20.0);
     let subtitle_size = subtitle_size_for_radius(radius);
@@ -964,12 +1002,12 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        collapsed_hover_detail, hover_backdrop_colour, hover_detail, hover_detail_origin,
-        hover_detail_size, hover_panel_background, hover_panel_backplate, minimal_indicator_text,
-        overlay_hit_regions, overlay_layout, overlay_layout_mode, rectangle_contains_point,
-        summary_lane_layout, summary_lane_text, summary_lane_texts, HoverDetail, HoverDetailStyle,
-        OverlayHitTarget, OverlayLayout, OverlayLayoutMode, HOVER_DETAIL_VERTICAL_GAP_FACTOR,
-        HOVER_DETAIL_WIDTH_FACTOR,
+        collapsed_hover_detail, contrast_ratio, hover_backdrop_colour, hover_detail,
+        hover_detail_origin, hover_detail_size, hover_panel_background, hover_panel_backplate,
+        minimal_indicator_colours, minimal_indicator_text, overlay_hit_regions, overlay_layout,
+        overlay_layout_mode, rectangle_contains_point, summary_lane_layout, summary_lane_text,
+        summary_lane_texts, HoverDetail, HoverDetailStyle, OverlayHitTarget, OverlayLayout,
+        OverlayLayoutMode, HOVER_DETAIL_VERTICAL_GAP_FACTOR, HOVER_DETAIL_WIDTH_FACTOR,
     };
     use crate::alarm::{FaceActiveItem, FaceActiveItemKind};
     use chrono::Local;
@@ -1402,5 +1440,22 @@ mod tests {
         assert_eq!(minimal_indicator_text(1), "1");
         assert_eq!(minimal_indicator_text(4), "4");
         assert_eq!(minimal_indicator_text(12), "9+");
+    }
+
+    #[test]
+    fn minimal_indicator_uses_readable_text_for_transparent_theme() {
+        let style = HoverDetailStyle {
+            face_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.05),
+            border_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.30),
+            text_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.60),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.10),
+        };
+
+        let (_backplate, background, text) = minimal_indicator_colours(style);
+
+        assert!(contrast_ratio(background, text) >= 4.5);
+        assert!(text.r < 0.5);
+        assert!(text.g < 0.5);
+        assert!(text.b < 0.5);
     }
 }

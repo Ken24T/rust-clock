@@ -124,9 +124,9 @@ Make the feature robust across the supported clock-size range, especially the sm
 
 ### Slice Status
 
-Slices 1 and 2 are now completed by the explicit overlay layout-mode selector plus the first reduced and minimal fallback treatments.
+Phase 3 is now completed by the explicit overlay layout-mode selector, the reduced and minimal fallback treatments, and the final contrast/theming polish across the smallest transparent badge and auxiliary reminder/control windows.
 
-Medium and large clocks keep the existing full summary lane. Intermediate radii now fall back to a single-line reduced lane that still supports item hover and overflow targeting, while smaller radii show a compact active-count indicator instead of dropping the overlay entirely.
+Medium and large clocks keep the existing full summary lane. Intermediate radii now fall back to a single-line reduced lane that still supports item hover and overflow targeting, while smaller radii show a compact active-count indicator that remains readable across the built-in themes.
 
 ### Exit Criteria
 
@@ -169,10 +169,10 @@ Each user-visible slice should be checked against these behaviours:
 
 ## Next Slice Recommendation
 
-Proceed with Phase 3, Slice 3:
+The clock-face visibility work is ready to treat as complete for the `1.0.0` release line.
 
-- review theme contrast across the new reduced and minimal treatments
-- tighten edge cases such as long labels, near-expiry timers, and mixed alarm/timer sets
-- decide whether any small-mode copy or sizing needs final polish before closing the feature
+The next logical follow-on work is outside this feature area:
 
-That keeps the next slice focused on polish and edge-case review now that all size tiers have a deliberate fallback.
+- improve packaging and installation guidance for Windows and Linux
+- revisit Wayland desktop-layer behaviour once layer-shell work is prioritised
+- decide whether future reminder work belongs in recurring alarms, snooze, or richer notification controls rather than further face-overlay expansion

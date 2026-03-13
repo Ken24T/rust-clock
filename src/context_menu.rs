@@ -5,10 +5,11 @@
 
 use iced::alignment;
 use iced::widget::{button, center, column, container, row, text};
-use iced::{Color, Element, Fill, Length, Padding};
+use iced::{Element, Fill, Length, Padding};
 
 use crate::alarm::AlarmManager;
 use crate::config::AppConfig;
+use crate::theme::WindowChrome;
 use crate::Message;
 
 // -- Theme name list (must match theme.rs presets) -------------------------
@@ -25,23 +26,25 @@ pub struct ContextMenu<'a> {
 }
 
 impl<'a> ContextMenu<'a> {
-    pub fn widget(config: &'a AppConfig, alarm_manager: &'a AlarmManager) -> Element<'a, Message> {
+    pub fn widget(
+        config: &'a AppConfig,
+        alarm_manager: &'a AlarmManager,
+        chrome: WindowChrome,
+    ) -> Element<'a, Message> {
         let menu = Self {
             config,
             alarm_manager,
         };
-        menu.build()
+        menu.build(chrome)
     }
 
-    fn build(self) -> Element<'a, Message> {
-        let heading = text("Rust Clock")
-            .size(14)
-            .color(Color::from_rgb(0.9, 0.9, 0.9));
+    fn build(self, chrome: WindowChrome) -> Element<'a, Message> {
+        let heading = text("Rust Clock").size(14).color(chrome.text);
 
         let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
             .on_press(Message::DismissMenu)
             .padding(Padding::from([1, 5]))
-            .style(menu_button_style);
+            .style(move |theme, status| menu_button_style(theme, status, chrome));
 
         let header_row = row![heading, close_btn]
             .spacing(6)
@@ -50,10 +53,10 @@ impl<'a> ContextMenu<'a> {
         let separator = container(text("").size(1))
             .width(Fill)
             .height(1)
-            .style(separator_style);
+            .style(move |theme| separator_style(theme, chrome));
 
         // -- Theme picker row --
-        let theme_label = text("Theme").size(12).color(Color::from_rgb(0.7, 0.7, 0.7));
+        let theme_label = text("Theme").size(12).color(chrome.muted_text);
 
         let theme_buttons: Vec<Element<'_, Message>> = THEMES
             .iter()
@@ -65,9 +68,11 @@ impl<'a> ContextMenu<'a> {
                     .padding(Padding::from([2, 6]));
 
                 if is_active {
-                    btn.style(active_button_style).into()
+                    btn.style(move |theme, status| active_button_style(theme, status, chrome))
+                        .into()
                 } else {
-                    btn.style(menu_button_style).into()
+                    btn.style(move |theme, status| menu_button_style(theme, status, chrome))
+                        .into()
                 }
             })
             .collect();
@@ -75,7 +80,7 @@ impl<'a> ContextMenu<'a> {
         let theme_row = column![theme_label, row(theme_buttons).spacing(4)].spacing(2);
 
         // -- Size picker row --
-        let size_label = text("Size").size(12).color(Color::from_rgb(0.7, 0.7, 0.7));
+        let size_label = text("Size").size(12).color(chrome.muted_text);
 
         let size_buttons: Vec<Element<'_, Message>> = SIZES
             .iter()
@@ -86,9 +91,11 @@ impl<'a> ContextMenu<'a> {
                     .padding(Padding::from([2, 6]));
 
                 if is_active {
-                    btn.style(active_button_style).into()
+                    btn.style(move |theme, status| active_button_style(theme, status, chrome))
+                        .into()
                 } else {
-                    btn.style(menu_button_style).into()
+                    btn.style(move |theme, status| menu_button_style(theme, status, chrome))
+                        .into()
                 }
             })
             .collect();
@@ -96,16 +103,23 @@ impl<'a> ContextMenu<'a> {
         let size_row = column![size_label, row(size_buttons).spacing(4)].spacing(2);
 
         // -- Toggle items --
-        let date_toggle = menu_toggle("Show Date", self.config.show_date, Message::ToggleDate);
+        let date_toggle = menu_toggle(
+            "Show Date",
+            self.config.show_date,
+            Message::ToggleDate,
+            chrome,
+        );
         let smooth_toggle = menu_toggle(
             "Smooth Seconds",
             self.config.smooth_seconds,
             Message::ToggleSmoothSeconds,
+            chrome,
         );
         let seconds_toggle = menu_toggle(
             "Show Seconds",
             self.config.show_seconds,
             Message::ToggleSeconds,
+            chrome,
         );
 
         // -- Quit --
@@ -123,13 +137,13 @@ impl<'a> ContextMenu<'a> {
         .on_press(Message::ShowAlarmPanel)
         .padding(Padding::from([3, 8]))
         .width(Fill)
-        .style(menu_button_style);
+        .style(move |theme, status| menu_button_style(theme, status, chrome));
 
         let quit_btn = button(text("Quit").size(12).align_x(alignment::Horizontal::Center))
             .on_press(Message::Quit)
             .padding(Padding::from([3, 8]))
             .width(Fill)
-            .style(quit_button_style);
+            .style(move |theme, status| quit_button_style(theme, status, chrome));
 
         let close_menu_btn = button(
             text("Close")
@@ -139,7 +153,7 @@ impl<'a> ContextMenu<'a> {
         .on_press(Message::DismissMenu)
         .padding(Padding::from([3, 8]))
         .width(Fill)
-        .style(menu_button_style);
+        .style(move |theme, status| menu_button_style(theme, status, chrome));
 
         let menu_col = column![
             header_row,
@@ -149,9 +163,9 @@ impl<'a> ContextMenu<'a> {
             date_toggle,
             smooth_toggle,
             seconds_toggle,
-            separator_widget(),
+            separator_widget(chrome),
             alarm_btn,
-            separator_widget(),
+            separator_widget(chrome),
             close_menu_btn,
             quit_btn,
         ]
@@ -160,7 +174,7 @@ impl<'a> ContextMenu<'a> {
         .width(Length::Shrink);
 
         let panel = container(menu_col)
-            .style(menu_panel_style)
+            .style(move |theme| menu_panel_style(theme, chrome))
             .width(Length::Shrink)
             .height(Length::Shrink);
 
@@ -172,23 +186,28 @@ impl<'a> ContextMenu<'a> {
 // -- Helper widgets --------------------------------------------------------
 
 /// A toggle menu item: label with a check mark indicator.
-fn menu_toggle(label: &str, enabled: bool, message: Message) -> Element<'_, Message> {
+fn menu_toggle(
+    label: &str,
+    enabled: bool,
+    message: Message,
+    chrome: WindowChrome,
+) -> Element<'_, Message> {
     let indicator = if enabled { "✓" } else { "  " };
     let display = format!("{indicator}  {label}");
     button(text(display).size(12).align_x(alignment::Horizontal::Left))
         .on_press(message)
         .padding(Padding::from([3, 8]))
         .width(Fill)
-        .style(menu_button_style)
+        .style(move |theme, status| menu_button_style(theme, status, chrome))
         .into()
 }
 
 /// A thin horizontal separator line.
-fn separator_widget<'a>() -> Element<'a, Message> {
+fn separator_widget<'a>(chrome: WindowChrome) -> Element<'a, Message> {
     container(text("").size(1))
         .width(Fill)
         .height(1)
-        .style(separator_style)
+        .style(move |theme| separator_style(theme, chrome))
         .into()
 }
 
@@ -203,39 +222,43 @@ fn capitalise(s: &str) -> String {
 
 // -- Container / button styles (using iced 0.14 style closures) ------------
 
-fn menu_panel_style(_theme: &iced::Theme) -> container::Style {
+fn menu_panel_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
     container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.12, 0.12, 0.15, 0.92,
-        ))),
+        background: Some(iced::Background::Color(chrome.panel_background)),
         border: iced::Border {
-            color: Color::from_rgba(0.4, 0.4, 0.45, 0.8),
+            color: chrome.panel_border,
             width: 1.0,
             radius: 8.0.into(),
         },
-        text_color: Some(Color::WHITE),
-        shadow: iced::Shadow::default(),
+        text_color: Some(chrome.text),
+        shadow: iced::Shadow {
+            color: chrome.panel_shadow,
+            offset: iced::Vector::new(0.0, 2.0),
+            blur_radius: 8.0,
+        },
         snap: false,
     }
 }
 
-fn separator_style(_theme: &iced::Theme) -> container::Style {
+fn separator_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
     container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.5, 0.5, 0.5, 0.4,
-        ))),
+        background: Some(iced::Background::Color(chrome.separator)),
         ..container::Style::default()
     }
 }
 
-fn menu_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
+fn menu_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
     let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.3, 0.3, 0.35, 0.6),
-        _ => Color::TRANSPARENT,
+        button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        _ => chrome.surface,
     };
     button::Style {
         background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.9, 0.9, 0.9),
+        text_color: chrome.text,
         border: iced::Border {
             radius: 4.0.into(),
             ..iced::Border::default()
@@ -245,32 +268,40 @@ fn menu_button_style(_theme: &iced::Theme, status: button::Status) -> button::St
     }
 }
 
-fn active_button_style(_theme: &iced::Theme, _status: button::Status) -> button::Style {
+fn active_button_style(
+    _theme: &iced::Theme,
+    _status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
     button::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.25, 0.5, 0.8, 0.7,
-        ))),
-        text_color: Color::WHITE,
+        background: Some(iced::Background::Color(chrome.accent_soft)),
+        text_color: chrome.accent_soft_text,
         border: iced::Border {
+            color: chrome.accent,
+            width: 1.0,
             radius: 4.0.into(),
-            ..iced::Border::default()
         },
         shadow: iced::Shadow::default(),
         snap: false,
     }
 }
 
-fn quit_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.8, 0.2, 0.2, 0.7),
-        _ => Color::from_rgba(0.5, 0.15, 0.15, 0.5),
+fn quit_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let (bg, text_color) = match status {
+        button::Status::Hovered | button::Status::Pressed => (chrome.danger, chrome.danger_text),
+        _ => (chrome.danger_soft, chrome.danger_soft_text),
     };
     button::Style {
         background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(1.0, 0.9, 0.9),
+        text_color,
         border: iced::Border {
+            color: chrome.panel_border,
+            width: 1.0,
             radius: 4.0.into(),
-            ..iced::Border::default()
         },
         shadow: iced::Shadow::default(),
         snap: false,
