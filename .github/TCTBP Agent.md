@@ -112,58 +112,68 @@ Safety principle: if completing a sync automatically could risk losing code, the
 
 Behaviour (safe, deterministic):
 
-1. **Preflight**
-  - Report current branch explicitly.
-  - Confirm working tree state.
-  - Confirm the branch's upstream tracking status if one exists.
-  - If the working tree is dirty, do not switch branches, pull, or overwrite files until a durable checkpoint exists.
+### Handover 1. Preflight
 
-2. **Fetch and compare**
-  - Fetch from `origin`.
-  - Determine whether local is ahead, behind, up to date, or diverged from the tracked remote branch.
-  - If there is no upstream for the current branch, note that the workflow may create one during push.
+- Report current branch explicitly.
+- Confirm working tree state.
+- Confirm the branch's upstream tracking status if one exists.
+- If the working tree is dirty, do not switch branches, pull, or overwrite files until a durable checkpoint exists.
 
-3. **Stage everything (if local changes exist)**
-  - Stage all local changes (tracked + new files).
-  - Never discard or overwrite uncommitted changes as part of this step.
+### Handover 2. Fetch And Compare
 
-4. **Test gate**
-  - Run the repo test command(s) from the Project Profile.
-  - Proceed only if tests pass at 100% when a commit or merge is needed.
-  - Stop immediately on failure and report.
+- Fetch from `origin`.
+- Determine whether local is ahead, behind, up to date, or diverged from the tracked remote branch.
+- If there is no upstream for the current branch, note that the workflow may create one during push.
 
-5. **Documentation impact**
-  - Classify the change set as one or more of: `user-visible-feature`, `ui-or-interaction`, `config-or-settings`, `packaging-or-metadata`, `roadmap-or-status`, `internal-only`.
-  - Review the documentation files required by the Project Profile / `TCTBP.json` rules.
-  - Before committing, report either:
-    - `Docs updated`, listing changed files, or
-    - `No docs impact`, with a short reason.
-  - If required documentation is clearly stale relative to the change set, stop and fix it before continuing.
+### Handover 3. Stage Everything (If Local Changes Exist)
 
-6. **Commit everything**
-  - If staged changes exist, commit them automatically with a clear message.
-  - Use this commit as the durable local checkpoint before any reconciliation that could otherwise alter the working tree.
+- Stage all local changes (tracked + new files).
+- Never discard or overwrite uncommitted changes as part of this step.
 
-7. **Ship if needed**
-  - If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
-  - If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
-  - Otherwise skip bump/tag and continue.
+### Handover 4. Test Gate
 
-8. **Reconcile branch state**
-  - If the tracked remote branch is ahead and local is clean, fast-forward local to the remote branch.
-  - If local and remote have diverged, stop and report the divergence for explicit resolution.
-  - Never auto-rebase, never hard reset, and never perform a destructive checkout to achieve reconciliation.
-  - If there is ambiguity about which side contains the newest valid work, stop and preserve both histories.
-  - If local is ahead, prepare to publish the current branch.
+- Run the repo test command(s) from the Project Profile.
+- Proceed only if tests pass at 100% when a commit or merge is needed.
+- Stop immediately on failure and report.
 
-9. **Push synced state**
-  - Push the current branch to `origin`.
-  - If the branch has no upstream yet, create the upstream on first push.
-  - Push tags (if a SHIP occurred or tags exist).
-  - Never force-push as part of handover.
+### Handover 5. Documentation Impact
 
-10. **Summary**
-  - Summarise: branch, upstream status, commits created, tests run, documentation review result, reconciliation result, and pushes performed.
+- Classify the change set as one or more of: `user-visible-feature`, `ui-or-interaction`, `config-or-settings`, `packaging-or-metadata`, `roadmap-or-status`, `internal-only`.
+- Review the documentation files required by the Project Profile / `TCTBP.json` rules.
+- Before committing, report either:
+  - `Docs updated`, listing changed files, or
+  - `No docs impact`, with a short reason.
+- If required documentation is clearly stale relative to the change set, stop and fix it before continuing.
+
+### Handover 6. Commit Everything
+
+- If staged changes exist, commit them automatically with a clear message.
+- Use this commit as the durable local checkpoint before any reconciliation that could otherwise alter the working tree.
+
+### Handover 7. Ship If Needed
+
+- If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
+- If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
+- Otherwise skip bump/tag and continue.
+
+### Handover 8. Reconcile Branch State
+
+- If the tracked remote branch is ahead and local is clean, fast-forward local to the remote branch.
+- If local and remote have diverged, stop and report the divergence for explicit resolution.
+- Never auto-rebase, never hard reset, and never perform a destructive checkout to achieve reconciliation.
+- If there is ambiguity about which side contains the newest valid work, stop and preserve both histories.
+- If local is ahead, prepare to publish the current branch.
+
+### Handover 9. Push Synced State
+
+- Push the current branch to `origin`.
+- If the branch has no upstream yet, create the upstream on first push.
+- Push tags (if a SHIP occurred or tags exist).
+- Never force-push as part of handover.
+
+### Handover 10. Summary
+
+- Summarise: branch, upstream status, commits created, tests run, documentation review result, reconciliation result, and pushes performed.
 
 Expected outcome:
 
@@ -187,44 +197,53 @@ Safety principle: deployment must preserve recoverability. Do not overwrite the 
 
 Behaviour (repo-specific, but controlled):
 
-1. **Preflight**
-  - Confirm current branch, working tree state, and working directory.
-  - Confirm the configured deployment target profile for this repo.
-  - Confirm whether deployment requires a clean and synced branch before continuing.
+### Deploy 1. Preflight
 
-2. **Sync / release prerequisite**
-  - If the repo policy requires a clean synced branch, stop or run `handover` first.
-  - If the repo policy requires a shipped state before deployment, run the full SHIP/TCTBP workflow first.
-  - Otherwise continue from the current validated commit.
+- Confirm current branch, working tree state, and working directory.
+- Confirm the configured deployment target profile for this repo.
+- Confirm whether deployment requires a clean and synced branch before continuing.
 
-3. **Verification gate**
-  - Run the repo verification commands from the Project Profile.
-  - Run the normal build gate first.
-  - Use the runtime or release build only for deployment packaging and installation.
+### Deploy 2. Sync / Release Prerequisite
 
-4. **Docs impact**
-  - Review packaging, runtime, installer, or deployment documentation when the deployable artefact or install path changes.
-  - Record either `Docs updated` or `No docs impact` with a short reason.
+- If the repo policy requires a clean synced branch, stop or run `handover` first.
+- If the repo policy requires a shipped state before deployment, run the full SHIP/TCTBP workflow first.
+- Otherwise continue from the current validated commit.
 
-5. **Runtime build**
-  - Run the repo's release build command.
-  - Produce the deployable runtime artefact defined by the repo profile.
+### Deploy 3. Verification Gate
 
-6. **Preserve existing runtime when practical**
-  - If the target profile defines backup or replacement safeguards, apply them before replacing an existing runtime.
-  - Never remove the only known-good runtime first unless the repo profile explicitly allows it.
+- Run the repo verification commands from the Project Profile.
+- Run the normal build gate first.
+- Use the runtime or release build only for deployment packaging and installation.
 
-7. **Deploy target steps**
-  - Execute the repo-defined install, copy, packaging, or launcher update steps for the chosen target profile.
-  - Run any repo-defined migration or post-install command only if configured.
+### Deploy 4. Docs Impact
 
-8. **Post-deploy validation**
-  - Verify the deployed runtime artefact exists in its expected location.
-  - Verify the deployed launcher or metadata exists when relevant.
-  - Run any configured post-deploy checks.
+- Review packaging, runtime, installer, or deployment documentation when the deployable artefact or install path changes.
+- Record either `Docs updated` or `No docs impact` with a short reason.
 
-9. **Summary**
-  - Summarise: target profile, prerequisite actions taken, runtime artefact built, install/update steps performed, validations run, and rollback notes if relevant.
+### Deploy 5. Runtime Build
+
+- Run the repo's release build command.
+- Produce the deployable runtime artefact defined by the repo profile.
+
+### Deploy 6. Preserve Existing Runtime When Practical
+
+- If the target profile defines backup or replacement safeguards, apply them before replacing an existing runtime.
+- Never remove the only known-good runtime first unless the repo profile explicitly allows it.
+
+### Deploy 7. Deploy Target Steps
+
+- Execute the repo-defined install, copy, packaging, or launcher update steps for the chosen target profile.
+- Run any repo-defined migration or post-install command only if configured.
+
+### Deploy 8. Post-Deploy Validation
+
+- Verify the deployed runtime artefact exists in its expected location.
+- Verify the deployed launcher or metadata exists when relevant.
+- Run any configured post-deploy checks.
+
+### Deploy 9. Summary
+
+- Summarise: target profile, prerequisite actions taken, runtime artefact built, install/update steps performed, validations run, and rollback notes if relevant.
 
 Expected outcome:
 
@@ -240,9 +259,9 @@ Approval rules:
 
 ## SHIP / TCTBP Workflow
 
-**SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push**
+### SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push
 
-### 1. Preflight
+### Ship 1. Preflight
 
 - Confirm current branch
 - Confirm working tree state
@@ -264,7 +283,7 @@ If the repo distinguishes between a normal build and a release build, the normal
 
 ---
 
-### 4. Docs Impact
+### Ship 4. Docs Impact
 
 - Classify the change set using the repo documentation rules.
 - Determine which documentation files must be reviewed.
@@ -312,7 +331,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 
 ## Permissions Expectations (Authoritative)
 
-**Allowed by Default**
+### Allowed By Default
 
 - Local file operations
 - Tests, lint, build
@@ -322,7 +341,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 - Fast-forward pulls on a clean working tree
 - Repo-defined non-destructive deployment checks
 
-**Require Explicit Approval**
+### Require Explicit Approval
 
 - Push (any remote)
 - Delete branches
