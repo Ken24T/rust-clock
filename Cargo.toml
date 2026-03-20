@@ -1,6 +1,6 @@
 [package]
 name = "rust-clock"
-version = "1.1.2"
+version = "1.2.0"
 edition = "2021"
 description = "Analog clock desklet for Linux with alarms, timers, and tray controls"
 license = "MIT"

@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use chrono::Local;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -102,9 +103,12 @@ impl AlarmManager {
         &self.alarms
     }
 
-    /// Number of active (unfired, enabled) alarms.
+    /// Number of active (enabled, not completed) alarms.
     pub fn active_count(&self) -> usize {
-        self.alarms.iter().filter(|a| a.enabled && !a.fired).count()
+        self.alarms
+            .iter()
+            .filter(|alarm| alarm.enabled && (!alarm.fired || alarm.kind.is_recurring()))
+            .count()
     }
 
     /// Active alarms/timers projected for compact clock-face display.
@@ -157,27 +161,45 @@ impl AlarmManager {
         }
     }
 
-    /// Remove all alarms that have already fired.
+    /// Remove all one-shot alarms that have already fired.
     pub fn clear_fired(&mut self) {
-        self.alarms.retain(|a| !a.fired);
+        self.alarms
+            .retain(|alarm| alarm.kind.is_recurring() || !alarm.fired);
         self.save();
     }
 
     // -- Tick check --------------------------------------------------------
 
     /// Check all alarms and return a list of those that should fire right now.
-    /// Marks them as fired so they won't fire again.
+    /// One-shot alarms are marked as fired. Recurring alarms are advanced to
+    /// their next future target and only fire once per check.
     pub fn check_and_fire(&mut self) -> Vec<Alarm> {
+        let now = Local::now();
         let mut fired = Vec::new();
+        let mut changed = false;
+
         for alarm in &mut self.alarms {
-            if alarm.should_fire() {
-                alarm.fired = true;
-                fired.push(alarm.clone());
+            if !alarm.should_fire_at(now) {
+                continue;
             }
+
+            let emitted = alarm.clone();
+            if alarm.kind.is_recurring() {
+                if !alarm.advance_after_fire(now) {
+                    alarm.fired = true;
+                }
+            } else {
+                alarm.fired = true;
+            }
+
+            fired.push(emitted);
+            changed = true;
         }
-        if !fired.is_empty() {
+
+        if changed {
             self.save();
         }
+
         fired
     }
 }
@@ -185,31 +207,50 @@ impl AlarmManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     #[test]
     fn add_and_remove_alarm() {
         let mut mgr = AlarmManager::default();
         let alarm = Alarm::new("Test", AlarmKind::from_now(60), AlertAction::Notification);
         let id = alarm.id;
-        mgr.alarms.push(alarm); // Skip save for test
+        mgr.alarms.push(alarm);
         assert_eq!(mgr.active_count(), 1);
         mgr.alarms.retain(|a| a.id != id);
         assert_eq!(mgr.active_count(), 0);
     }
 
     #[test]
-    fn check_and_fire_marks_fired() {
+    fn check_and_fire_marks_one_shot_as_fired() {
         let mut mgr = AlarmManager::default();
-        // Create a timer that should fire immediately.
         let alarm = Alarm::new("Now", AlarmKind::from_now(0), AlertAction::Both);
         mgr.alarms.push(alarm);
         std::thread::sleep(std::time::Duration::from_millis(10));
         let fired = mgr.check_and_fire();
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].label, "Now");
-        // Should not fire again.
         let fired2 = mgr.check_and_fire();
         assert!(fired2.is_empty());
+    }
+
+    #[test]
+    fn check_and_fire_advances_recurring_timer() {
+        let mut mgr = AlarmManager::default();
+        let alarm = Alarm::new(
+            "Hourly",
+            AlarmKind::RepeatingInterval {
+                interval_secs: 3600,
+                next_target: Local::now() - Duration::seconds(1),
+            },
+            AlertAction::Both,
+        );
+        mgr.alarms.push(alarm);
+
+        let fired = mgr.check_and_fire();
+        assert_eq!(fired.len(), 1);
+        assert_eq!(mgr.active_count(), 1);
+        assert!(!mgr.alarms[0].fired);
+        assert!(mgr.alarms[0].kind.target() > Local::now());
     }
 
     #[test]
@@ -224,15 +265,24 @@ mod tests {
 
         let later = Alarm::new("Later", AlarmKind::from_now(300), AlertAction::Both);
         let sooner = Alarm::new("Sooner", AlarmKind::from_now(30), AlertAction::Both);
+        let recurring = Alarm::new(
+            "Hourly",
+            AlarmKind::RepeatingInterval {
+                interval_secs: 3600,
+                next_target: Local::now() + Duration::seconds(15),
+            },
+            AlertAction::Both,
+        );
 
         mgr.alarms.push(later);
         mgr.alarms.push(disabled);
         mgr.alarms.push(fired);
         mgr.alarms.push(sooner);
+        mgr.alarms.push(recurring);
 
         let items = mgr.face_active_items();
         let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
 
-        assert_eq!(labels, vec!["Sooner", "Later"]);
+        assert_eq!(labels, vec!["Hourly", "Sooner", "Later"]);
     }
 }

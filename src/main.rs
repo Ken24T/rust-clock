@@ -78,12 +78,25 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
 
 /// Application theme: transparent background so the desktop shows through.
 fn clock_theme(app: &ClockApp, window: window::Id) -> iced::Theme {
-    if Some(window) == app.control_window || Some(window) == app.hover_window {
+    if Some(window) == app.hover_window {
         let chrome = window_chrome(&app.config.resolved_theme());
         iced::Theme::custom(
             "Clock Window".to_string(),
             iced::theme::Palette {
                 background: chrome.panel_background,
+                text: chrome.text,
+                primary: chrome.accent,
+                success: chrome.success,
+                danger: chrome.danger,
+                warning: chrome.warning,
+            },
+        )
+    } else if Some(window) == app.control_window {
+        let chrome = window_chrome(&app.config.resolved_theme());
+        iced::Theme::custom(
+            "Clock Control Window".to_string(),
+            iced::theme::Palette {
+                background: Color::TRANSPARENT,
                 text: chrome.text,
                 primary: chrome.accent,
                 success: chrome.success,
@@ -1078,9 +1091,16 @@ fn send_notification(alarm: &alarm::Alarm) {
             alarm::AlarmKind::Timer { duration_secs, .. } => {
                 format!("{} timer finished", format_timer_label(*duration_secs))
             }
+            alarm::AlarmKind::RepeatingInterval { interval_secs, .. } => {
+                format!(
+                    "{} repeating timer fired",
+                    format_timer_label(*interval_secs)
+                )
+            }
             alarm::AlarmKind::AtTime { target } => {
                 format!("Alarm at {}", target.format("%H:%M"))
             }
+            alarm::AlarmKind::RepeatingSchedule { schedule, .. } => schedule.summary(),
         }
     };
     platform::send_notification(&summary, &body);
