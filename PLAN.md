@@ -1,6 +1,6 @@
 # Rust Clock — Implementation Plan
 
-## Current Version: 1.2.0
+## Current Version: 1.2.1
 
 **Target:** A moveable Linux desktop clock that behaves like a lightweight desklet, with live analog rendering, saved placement, configurable appearance, and built-in alarms/timers.
 
@@ -154,7 +154,7 @@
 - [ ] Configurable chime hours
 - [ ] Visual indicator on the face for pending alarms
 - [ ] Snooze
-- [ ] Recurring alarms
+- [x] Recurring alarms and interval timers
 
 ### Face-level visibility
 

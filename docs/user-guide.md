@@ -9,6 +9,7 @@ You can use it as:
 - a live analog clock
 - a simple timer for short reminders
 - a basic alarm for a specific time later today or on another date
+- a recurring reminder for daily routines, weekly events, and repeating intervals
 
 ## Getting Started
 
@@ -138,10 +139,11 @@ To create your own countdown timer:
 
 1. Open `Alarms & Timers`.
 2. Leave the mode set to `Timer`.
-3. Add a label if you want one.
-4. Add a message if you want one.
-5. Enter the number of minutes.
-6. Select `Add`.
+3. Choose `Once` for a one-shot timer or `Repeats` for a repeating interval timer.
+4. Add a label if you want one.
+5. Add a message if you want one.
+6. Enter the number of minutes.
+7. Select `Add`.
 
 Examples of labels:
 
@@ -155,11 +157,19 @@ To set a reminder for a specific time:
 
 1. Open `Alarms & Timers`.
 2. Switch the mode to `Alarm`.
-3. Add a label if you want one.
-4. Add a message if you want one.
-5. Enter the time as `HH:MM`.
-6. Optionally enter the date as `YYYY-MM-DD`.
-7. Select `Add`.
+3. Choose one of the schedule types:
+	- `Once` for a one-shot alarm
+	- `Daily` for every day
+	- `Weekdays` for Monday to Friday
+	- `Weekly` for one weekday each week
+	- `Custom Days` for a selected set of weekdays
+4. Add a label if you want one.
+5. Add a message if you want one.
+6. Enter the time as `HH:MM`.
+7. If you chose `Once`, optionally enter the date as `YYYY-MM-DD`.
+8. If you chose `Weekly`, select the weekday.
+9. If you chose `Custom Days`, select one or more weekdays.
+10. Select `Add`.
 
 If you leave the date empty, Rust Clock uses today.
 
@@ -174,6 +184,7 @@ The list in the panel shows:
 - the label
 - how much time is left, or whether it is done
 - whether it is a timer or an alarm
+- the recurrence pattern when a reminder repeats
 - a short preview of the message if one was added
 
 ### When A Reminder Goes Off

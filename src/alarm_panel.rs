@@ -12,7 +12,10 @@ use iced::alignment;
 use iced::widget::{button, center, column, container, row, scrollable, text, text_input};
 use iced::{Color, Element, Fill, Length, Padding};
 
-use crate::alarm::{Alarm, AlarmForm, AlarmFormMode, AlarmManager};
+use crate::alarm::{
+    Alarm, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode, ScheduleWeekday,
+    TimerRepeatMode,
+};
 use crate::theme::WindowChrome;
 use crate::Message;
 
@@ -243,15 +246,88 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
     match form.mode {
         AlarmFormMode::Timer => {
             elements.push(
-                text_input("Minutes", &form.timer_minutes)
-                    .on_input(Message::AlarmFormMinutesChanged)
-                    .size(11)
-                    .padding(Padding::from([3, 6]))
-                    .style(move |theme, status| form_input_style(theme, status, chrome))
+                text("Timer cadence")
+                    .size(10)
+                    .color(chrome.muted_text)
                     .into(),
+            );
+            elements.push(
+                build_choice_row(
+                    vec![
+                        (
+                            "Once",
+                            form.timer_repeat == TimerRepeatMode::Once,
+                            Message::AlarmFormSetTimerRepeat(TimerRepeatMode::Once),
+                        ),
+                        (
+                            "Repeats",
+                            form.timer_repeat == TimerRepeatMode::Repeating,
+                            Message::AlarmFormSetTimerRepeat(TimerRepeatMode::Repeating),
+                        ),
+                    ],
+                    chrome,
+                )
+                .into(),
+            );
+            elements.push(
+                text_input(
+                    if form.timer_repeat == TimerRepeatMode::Repeating {
+                        "Interval minutes"
+                    } else {
+                        "Minutes"
+                    },
+                    &form.timer_minutes,
+                )
+                .on_input(Message::AlarmFormMinutesChanged)
+                .size(11)
+                .padding(Padding::from([3, 6]))
+                .style(move |theme, status| form_input_style(theme, status, chrome))
+                .into(),
             );
         }
         AlarmFormMode::Alarm => {
+            elements.push(text("Schedule").size(10).color(chrome.muted_text).into());
+            elements.push(
+                build_choice_row(
+                    vec![
+                        (
+                            "Once",
+                            form.alarm_repeat == AlarmRepeatMode::Once,
+                            Message::AlarmFormSetAlarmRepeat(AlarmRepeatMode::Once),
+                        ),
+                        (
+                            "Daily",
+                            form.alarm_repeat == AlarmRepeatMode::Daily,
+                            Message::AlarmFormSetAlarmRepeat(AlarmRepeatMode::Daily),
+                        ),
+                        (
+                            "Weekdays",
+                            form.alarm_repeat == AlarmRepeatMode::Weekdays,
+                            Message::AlarmFormSetAlarmRepeat(AlarmRepeatMode::Weekdays),
+                        ),
+                    ],
+                    chrome,
+                )
+                .into(),
+            );
+            elements.push(
+                build_choice_row(
+                    vec![
+                        (
+                            "Weekly",
+                            form.alarm_repeat == AlarmRepeatMode::Weekly,
+                            Message::AlarmFormSetAlarmRepeat(AlarmRepeatMode::Weekly),
+                        ),
+                        (
+                            "Custom Days",
+                            form.alarm_repeat == AlarmRepeatMode::SelectedWeekdays,
+                            Message::AlarmFormSetAlarmRepeat(AlarmRepeatMode::SelectedWeekdays),
+                        ),
+                    ],
+                    chrome,
+                )
+                .into(),
+            );
             elements.push(
                 text_input("Time (HH:MM)", &form.alarm_time)
                     .on_input(Message::AlarmFormTimeChanged)
@@ -260,14 +336,28 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
                     .style(move |theme, status| form_input_style(theme, status, chrome))
                     .into(),
             );
-            elements.push(
-                text_input("Date (YYYY-MM-DD, blank=today)", &form.alarm_date)
-                    .on_input(Message::AlarmFormDateChanged)
-                    .size(11)
-                    .padding(Padding::from([3, 6]))
-                    .style(move |theme, status| form_input_style(theme, status, chrome))
-                    .into(),
-            );
+            match form.alarm_repeat {
+                AlarmRepeatMode::Once => {
+                    elements.push(
+                        text_input("Date (YYYY-MM-DD, blank=today)", &form.alarm_date)
+                            .on_input(Message::AlarmFormDateChanged)
+                            .size(11)
+                            .padding(Padding::from([3, 6]))
+                            .style(move |theme, status| form_input_style(theme, status, chrome))
+                            .into(),
+                    );
+                }
+                AlarmRepeatMode::Weekly => {
+                    elements.push(text("Weekday").size(10).color(chrome.muted_text).into());
+                    elements.push(build_weekday_row(form.weekly_weekday, chrome).into());
+                }
+                AlarmRepeatMode::SelectedWeekdays => {
+                    elements.push(text("Days").size(10).color(chrome.muted_text).into());
+                    elements
+                        .push(build_selected_weekday_rows(&form.selected_weekdays, chrome).into());
+                }
+                AlarmRepeatMode::Daily | AlarmRepeatMode::Weekdays => {}
+            }
         }
     }
 
@@ -294,6 +384,9 @@ fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message>
     // Show message excerpt if present.
     let mut info_items: Vec<Element<'_, Message>> =
         vec![label.into(), row![remaining, kind].spacing(6).into()];
+    if let Some(detail) = alarm.detail_text() {
+        info_items.push(text(detail).size(9).color(chrome.muted_text).into());
+    }
     if let Some(msg) = &alarm.message {
         if !msg.is_empty() {
             let excerpt = if msg.len() > 30 {
@@ -323,6 +416,97 @@ fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message>
         .style(move |theme| alarm_row_style(theme, chrome))
         .width(Fill)
         .into()
+}
+
+fn build_choice_row(
+    items: Vec<(&'static str, bool, Message)>,
+    chrome: WindowChrome,
+) -> iced::widget::Row<'static, Message> {
+    let buttons: Vec<Element<'static, Message>> = items
+        .into_iter()
+        .map(|(label, active, message)| {
+            button(text(label).size(10).align_x(alignment::Horizontal::Center))
+                .on_press(message)
+                .padding(Padding::from([2, 6]))
+                .style(move |theme, status| {
+                    if active {
+                        active_mode_style(theme, status, chrome)
+                    } else {
+                        preset_button_style(theme, status, chrome)
+                    }
+                })
+                .into()
+        })
+        .collect();
+    row(buttons).spacing(4)
+}
+
+fn build_weekday_row(
+    selected: ScheduleWeekday,
+    chrome: WindowChrome,
+) -> iced::widget::Row<'static, Message> {
+    let buttons: Vec<Element<'static, Message>> = ScheduleWeekday::ALL
+        .into_iter()
+        .map(|weekday| {
+            button(
+                text(weekday.short_label())
+                    .size(10)
+                    .align_x(alignment::Horizontal::Center),
+            )
+            .on_press(Message::AlarmFormSetWeeklyWeekday(weekday))
+            .padding(Padding::from([2, 5]))
+            .style(move |theme, status| {
+                if weekday == selected {
+                    active_mode_style(theme, status, chrome)
+                } else {
+                    preset_button_style(theme, status, chrome)
+                }
+            })
+            .into()
+        })
+        .collect();
+    row(buttons).spacing(3)
+}
+
+fn build_selected_weekday_rows(
+    selected_days: &[ScheduleWeekday],
+    chrome: WindowChrome,
+) -> iced::widget::Column<'static, Message> {
+    let top: Vec<Element<'static, Message>> = ScheduleWeekday::ALL[..4]
+        .iter()
+        .copied()
+        .map(|weekday| build_selected_weekday_button(weekday, selected_days, chrome))
+        .collect();
+    let bottom: Vec<Element<'static, Message>> = ScheduleWeekday::ALL[4..]
+        .iter()
+        .copied()
+        .map(|weekday| build_selected_weekday_button(weekday, selected_days, chrome))
+        .collect();
+
+    column![row(top).spacing(3), row(bottom).spacing(3)].spacing(3)
+}
+
+fn build_selected_weekday_button(
+    weekday: ScheduleWeekday,
+    selected_days: &[ScheduleWeekday],
+    chrome: WindowChrome,
+) -> Element<'static, Message> {
+    let active = selected_days.contains(&weekday);
+    button(
+        text(weekday.short_label())
+            .size(10)
+            .align_x(alignment::Horizontal::Center),
+    )
+    .on_press(Message::AlarmFormToggleSelectedWeekday(weekday))
+    .padding(Padding::from([2, 5]))
+    .style(move |theme, status| {
+        if active {
+            active_mode_style(theme, status, chrome)
+        } else {
+            preset_button_style(theme, status, chrome)
+        }
+    })
+    .into()
 }
 
 /// Thin horizontal separator.

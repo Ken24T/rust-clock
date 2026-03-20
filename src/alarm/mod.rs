@@ -46,6 +46,25 @@ pub enum AlarmFormMode {
     Alarm,
 }
 
+/// Whether a timer runs once or repeats at a fixed interval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimerRepeatMode {
+    #[default]
+    Once,
+    Repeating,
+}
+
+/// Whether an alarm is one-shot or follows a recurring schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AlarmRepeatMode {
+    #[default]
+    Once,
+    Daily,
+    Weekdays,
+    Weekly,
+    SelectedWeekdays,
+}
+
 /// Editable form state for creating or editing an alarm.
 #[derive(Debug, Clone, Default)]
 pub struct AlarmForm {
@@ -61,6 +80,14 @@ pub struct AlarmForm {
     pub alarm_date: String,
     /// Timer or Alarm.
     pub mode: AlarmFormMode,
+    /// Timer repeat behaviour.
+    pub timer_repeat: TimerRepeatMode,
+    /// Alarm repeat behaviour.
+    pub alarm_repeat: AlarmRepeatMode,
+    /// Weekday used for weekly schedules.
+    pub weekly_weekday: ScheduleWeekday,
+    /// Selected weekdays for custom weekly schedules.
+    pub selected_weekdays: Vec<ScheduleWeekday>,
     /// When editing, the ID of the existing alarm.
     pub editing: Option<Uuid>,
 }
@@ -73,6 +100,7 @@ impl AlarmForm {
 
     /// Populate the form from an existing alarm for editing.
     pub fn populate_from(&mut self, alarm: &Alarm) {
+        self.clear();
         self.label = alarm.label.clone();
         self.message = alarm.message.clone().unwrap_or_default();
         self.editing = Some(alarm.id);
@@ -85,18 +113,66 @@ impl AlarmForm {
             } => {
                 self.mode = AlarmFormMode::Timer;
                 self.timer_minutes = format!("{}", duration_secs / 60);
+                self.timer_repeat = if matches!(alarm.kind, AlarmKind::RepeatingInterval { .. }) {
+                    TimerRepeatMode::Repeating
+                } else {
+                    TimerRepeatMode::Once
+                };
             }
             AlarmKind::AtTime { target } => {
                 self.mode = AlarmFormMode::Alarm;
                 self.alarm_time = target.format("%H:%M").to_string();
                 self.alarm_date = target.format("%Y-%m-%d").to_string();
+                self.alarm_repeat = AlarmRepeatMode::Once;
             }
-            AlarmKind::RepeatingSchedule { next_target, .. } => {
+            AlarmKind::RepeatingSchedule {
+                schedule,
+                next_target,
+            } => {
                 self.mode = AlarmFormMode::Alarm;
                 self.alarm_time = next_target.format("%H:%M").to_string();
                 self.alarm_date.clear();
+                match schedule {
+                    RecurrenceRule::Daily { .. } => {
+                        self.alarm_repeat = AlarmRepeatMode::Daily;
+                    }
+                    RecurrenceRule::Weekdays { .. } => {
+                        self.alarm_repeat = AlarmRepeatMode::Weekdays;
+                    }
+                    RecurrenceRule::Weekly { weekday, .. } => {
+                        self.alarm_repeat = AlarmRepeatMode::Weekly;
+                        self.weekly_weekday = *weekday;
+                    }
+                    RecurrenceRule::SelectedWeekdays { weekdays, .. } => {
+                        self.alarm_repeat = AlarmRepeatMode::SelectedWeekdays;
+                        self.selected_weekdays = weekdays.clone();
+                        if let Some(first) = weekdays.first().copied() {
+                            self.weekly_weekday = first;
+                        }
+                    }
+                }
+                self.normalise_selected_weekdays();
             }
         }
+    }
+
+    pub fn toggle_selected_weekday(&mut self, weekday: ScheduleWeekday) {
+        if let Some(index) = self
+            .selected_weekdays
+            .iter()
+            .position(|day| *day == weekday)
+        {
+            self.selected_weekdays.remove(index);
+        } else {
+            self.selected_weekdays.push(weekday);
+        }
+        self.normalise_selected_weekdays();
+    }
+
+    fn normalise_selected_weekdays(&mut self) {
+        self.selected_weekdays
+            .sort_by_key(|weekday| weekday.sort_order());
+        self.selected_weekdays.dedup();
     }
 }
 
@@ -167,9 +243,10 @@ pub enum AlertAction {
 // -- Recurrence ------------------------------------------------------------
 
 /// Supported day-of-week values for recurring schedules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ScheduleWeekday {
+    #[default]
     Monday,
     Tuesday,
     Wednesday,
@@ -180,6 +257,16 @@ pub enum ScheduleWeekday {
 }
 
 impl ScheduleWeekday {
+    pub const ALL: [ScheduleWeekday; 7] = [
+        ScheduleWeekday::Monday,
+        ScheduleWeekday::Tuesday,
+        ScheduleWeekday::Wednesday,
+        ScheduleWeekday::Thursday,
+        ScheduleWeekday::Friday,
+        ScheduleWeekday::Saturday,
+        ScheduleWeekday::Sunday,
+    ];
+
     fn to_chrono(self) -> chrono::Weekday {
         match self {
             Self::Monday => chrono::Weekday::Mon,
@@ -192,7 +279,7 @@ impl ScheduleWeekday {
         }
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Monday => "Monday",
             Self::Tuesday => "Tuesday",
@@ -201,6 +288,30 @@ impl ScheduleWeekday {
             Self::Friday => "Friday",
             Self::Saturday => "Saturday",
             Self::Sunday => "Sunday",
+        }
+    }
+
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Monday => "Mon",
+            Self::Tuesday => "Tue",
+            Self::Wednesday => "Wed",
+            Self::Thursday => "Thu",
+            Self::Friday => "Fri",
+            Self::Saturday => "Sat",
+            Self::Sunday => "Sun",
+        }
+    }
+
+    fn sort_order(self) -> u8 {
+        match self {
+            Self::Monday => 0,
+            Self::Tuesday => 1,
+            Self::Wednesday => 2,
+            Self::Thursday => 3,
+            Self::Friday => 4,
+            Self::Saturday => 5,
+            Self::Sunday => 6,
         }
     }
 }
@@ -413,6 +524,19 @@ impl AlarmKind {
         }
     }
 
+    fn detail_text(&self) -> Option<String> {
+        match self {
+            Self::RepeatingInterval { interval_secs, .. } => {
+                Some(format!("Every {}", format_duration(*interval_secs)))
+            }
+            Self::RepeatingSchedule { schedule, .. } => Some(schedule.summary()),
+            Self::AtTime { target } => Some(format!("At {}", target.format("%Y-%m-%d %H:%M"))),
+            Self::Timer { duration_secs, .. } => {
+                Some(format!("Once after {}", format_duration(*duration_secs)))
+            }
+        }
+    }
+
     fn default_label(&self) -> &'static str {
         match self {
             Self::AtTime { .. } | Self::RepeatingSchedule { .. } => "Alarm",
@@ -511,6 +635,10 @@ impl Alarm {
         self.kind.kind_name()
     }
 
+    pub fn detail_text(&self) -> Option<String> {
+        self.kind.detail_text()
+    }
+
     /// Project this alarm into a compact face-visible summary when active.
     pub fn face_active_item(&self) -> Option<FaceActiveItem> {
         if !self.enabled || (self.fired && !self.kind.is_recurring()) {
@@ -543,6 +671,22 @@ impl Alarm {
             target: self.kind.target(),
             remaining_text: self.remaining_display(),
         })
+    }
+}
+
+fn format_duration(secs: u64) -> String {
+    if secs >= 3600 {
+        let hours = secs / 3600;
+        let minutes = (secs % 3600) / 60;
+        if minutes > 0 {
+            format!("{hours}h {minutes}m")
+        } else {
+            format!("{hours}h")
+        }
+    } else if secs >= 60 {
+        format!("{}m", secs / 60)
+    } else {
+        format!("{secs}s")
     }
 }
 
