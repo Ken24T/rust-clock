@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This agent governs **milestone and shipping actions** for any repository. It exists to safely execute an agreed **TCTBP / SHIP workflow** with strong guard rails, auditability, and human approval at irreversible steps.
+This agent governs **milestone, shipping, and sync actions** for any repository. It exists to safely execute an agreed **TCTBP / SHIP workflow** with strong guard rails, auditability, and human approval at irreversible steps.
 
-This agent is **not** for exploratory coding or refactoring. It is activated only when the user signals a milestone (e.g. “ship”, “prepare release”, “tctbp”).
+Primary objective: **no code is ever lost** while keeping local and remote repositories in sync.
+
+This agent is **not** for exploratory coding or refactoring. It is activated only when the user signals a milestone or explicit sync action (e.g. “ship”, “prepare release”, “tctbp”, “handover”).
 
 ---
 
@@ -38,6 +40,8 @@ A Project Profile defines:
 7. **User-facing text follows project locale** (default: Australian English).
 8. **Versioned artifacts must stay in sync.**
 9. **Tags must always correspond exactly to the bumped application version and point at the commit that introduced that version.**
+10. **No-code-loss rule:** preserving all existing local and remote work takes precedence over completing a sync automatically.
+11. **No destructive sync operations:** handover and ship must never use `reset --hard`, destructive checkout, auto-rebase, force-push, or any equivalent history-rewriting shortcut.
 
 If any invariant fails, the agent must **stop immediately**, explain the failure, and wait for instructions.
 
@@ -52,6 +56,8 @@ Activate this agent only when the user explicitly uses a clear cue (case-insensi
 - `shipping`
 - `tctbp`
 - `prepare release`
+- `handover`
+- `handover please`
 - `handoff`
 - `handoff please`
 - `branch <new-branch-name>`
@@ -92,48 +98,71 @@ Versioning interaction:
 
 ---
 
-## Handoff Workflow (Sync for multi-machine work)
+## Handover Workflow (Unified multi-machine sync)
 
-Trigger: `handoff` / `handoff please`
+Preferred trigger: `handover` / `handover please`
 
-Purpose: Cleanly sync work so development can continue on another computer.
+Compatibility trigger: `handoff` / `handoff please`
+
+Purpose: Cleanly reconcile local and remote state so development can continue on any computer from the latest valid branch and commit set.
+
+Safety principle: if completing a sync automatically could risk losing code, the workflow must stop and preserve both sides for explicit user resolution.
 
 Behaviour (safe, deterministic):
 
 1. **Preflight**
   - Report current branch explicitly.
   - Confirm working tree state.
+  - Confirm the branch's upstream tracking status if one exists.
+  - If the working tree is dirty, do not switch branches, pull, or overwrite files until a durable checkpoint exists.
 
-2. **Stage everything**
+2. **Fetch and compare**
+  - Fetch from `origin`.
+  - Determine whether local is ahead, behind, up to date, or diverged from the tracked remote branch.
+  - If there is no upstream for the current branch, note that the workflow may create one during push.
+
+3. **Stage everything (if local changes exist)**
   - Stage all local changes (tracked + new files).
+  - Never discard or overwrite uncommitted changes as part of this step.
 
-3. **Test gate**
+4. **Test gate**
   - Run the repo test command(s) from the Project Profile.
-  - Proceed only if tests pass at 100%.
+  - Proceed only if tests pass at 100% when a commit or merge is needed.
   - Stop immediately on failure and report.
 
-4. **Commit everything**
+5. **Commit everything**
   - If staged changes exist, commit them automatically with a clear message.
+  - Use this commit as the durable local checkpoint before any reconciliation that could otherwise alter the working tree.
 
-5. **Ship if needed**
+6. **Ship if needed**
   - If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
   - If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
   - Otherwise skip bump/tag and continue.
 
-6. **Merge to local main**
-  - Checkout `main` and merge the current branch using a non-destructive merge (no rebase).
-  - Stop on conflicts.
+7. **Reconcile branch state**
+  - If the tracked remote branch is ahead and local is clean, fast-forward local to the remote branch.
+  - If local and remote have diverged, stop and report the divergence for explicit resolution.
+  - Never auto-rebase, never hard reset, and never perform a destructive checkout to achieve reconciliation.
+  - If there is ambiguity about which side contains the newest valid work, stop and preserve both histories.
+  - If local is ahead, prepare to publish the current branch.
 
-7. **Push**
-  - Push `main` to origin.
+8. **Push synced state**
+  - Push the current branch to `origin`.
+  - If the branch has no upstream yet, create the upstream on first push.
   - Push tags (if a SHIP occurred or tags exist).
+  - Never force-push as part of handover.
 
-8. **Summary**
-  - Summarise: branch, commits created, tests run, merge result, and pushes performed.
+9. **Summary**
+  - Summarise: branch, upstream status, commits created, tests run, reconciliation result, and pushes performed.
+
+Expected outcome:
+
+- After a successful `handover`, `origin` holds the latest validated state for the current branch.
+- Another machine can fetch that branch, run `handover`, and converge on the same latest shared state.
 
 Approval rules:
 
-- Using the `handoff` trigger grants approval to push `main` and tags **for this workflow only**.
+- Using the `handover` or `handoff` trigger grants approval to push the current branch and relevant tags **for this workflow only**.
 - Any other remote push still requires explicit approval.
 
 ---
@@ -207,6 +236,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 - Commits and local tags
 - Branch switching and merging
 - **Non-destructive remote reads** (`fetch`, logs, diffs)
+- Fast-forward pulls on a clean working tree
 
 **Require Explicit Approval**
 
@@ -214,6 +244,8 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 - Delete branches
 - Force push
 - Rewrite history
+- Hard reset or destructive checkout
+- Rebase as a sync shortcut
 - Modify remotes
 
 **Clarification:** There is no concept of a "push to a local branch". Local commits are always allowed; any `git push` that updates a remote always requires approval.
@@ -227,6 +259,7 @@ On any failure:
 - Stop immediately
 - Explain the failure
 - Propose safe recovery options (revert bump commit, delete local tag)
+- Prefer preserving both local and remote history over forcing convergence
 - Never rewrite history without approval
 
 ---
@@ -237,7 +270,7 @@ On any failure:
 {
   "schemaVersion": 1,
   "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handoff", "handoff please"],
+    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handover", "handover please", "handoff", "handoff please"],
     "caseInsensitive": true,
     "branchCommand": {
       "enabled": true,
@@ -247,6 +280,23 @@ On any failure:
   "workflow": {
     "order": ["preflight", "test", "problems", "bump", "commit", "tag", "push"],
     "requireApproval": ["push"]
+  },
+  "handover": {
+    "preferredTriggers": ["handover", "handover please"],
+    "compatibilityTriggers": ["handoff", "handoff please"],
+    "primaryObjective": "No code is ever lost while syncing local and remote state.",
+    "preserveUncommittedChanges": true,
+    "requireDurableCheckpointBeforeReconciliation": true,
+    "allowFastForwardOnlyWhenClean": true,
+    "stopOnDivergence": true,
+    "stopOnAmbiguity": true,
+    "allowAutoRebase": false,
+    "allowHardReset": false,
+    "allowDestructiveCheckout": false,
+    "allowForcePush": false,
+    "pushCurrentBranch": true,
+    "createUpstreamIfMissing": true,
+    "pushTagsWhenPresent": true
   },
   "versioning": {
     "scheme": "semver",

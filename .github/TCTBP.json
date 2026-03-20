@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handoff", "handoff please"],
+    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handover", "handover please", "handoff", "handoff please"],
     "caseInsensitive": true,
     "branchCommand": {
       "enabled": true,
@@ -19,6 +19,24 @@
   "workflow": {
     "order": ["preflight", "test", "problems", "bump", "commit", "tag", "push"],
     "requireApproval": ["push"]
+  },
+  "handover": {
+    "preferredTriggers": ["handover", "handover please"],
+    "compatibilityTriggers": ["handoff", "handoff please"],
+    "primaryObjective": "No code is ever lost while syncing local and remote state.",
+    "purpose": "Reconcile local and remote branch state so any machine can continue from the latest validated shared work.",
+    "preserveUncommittedChanges": true,
+    "requireDurableCheckpointBeforeReconciliation": true,
+    "allowFastForwardOnlyWhenClean": true,
+    "pushCurrentBranch": true,
+    "createUpstreamIfMissing": true,
+    "stopOnDivergence": true,
+    "stopOnAmbiguity": true,
+    "allowAutoRebase": false,
+    "allowHardReset": false,
+    "allowDestructiveCheckout": false,
+    "allowForcePush": false,
+    "pushTagsWhenPresent": true
   },
   "versioning": {
     "scheme": "semver",
