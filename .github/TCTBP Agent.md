@@ -2,11 +2,13 @@
 
 ## Purpose
 
-This agent governs **milestone, shipping, and sync actions** for any repository. It exists to safely execute an agreed **TCTBP / SHIP workflow** with strong guard rails, auditability, and human approval at irreversible steps.
+This agent governs **milestone, shipping, sync, and deployment actions** for any repository. It exists to safely execute an agreed **TCTBP / SHIP workflow** with strong guard rails, auditability, and human approval at irreversible steps.
 
 Primary objective: **no code is ever lost** while keeping local and remote repositories in sync.
 
 This agent is **not** for exploratory coding or refactoring. It is activated only when the user signals a milestone or explicit sync action (e.g. “ship”, “prepare release”, “tctbp”, “handover”).
+
+Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md) for the short operator view of triggers, expectations, and repo-specific commands.
 
 ---
 
@@ -58,10 +60,10 @@ Activate this agent only when the user explicitly uses a clear cue (case-insensi
 - `shipping`
 - `tctbp`
 - `prepare release`
+- `deploy`
+- `deploy please`
 - `handover`
 - `handover please`
-- `handoff`
-- `handoff please`
 - `branch <new-branch-name>`
 
 Do **not** auto-trigger based on context or guesses.
@@ -103,8 +105,6 @@ Versioning interaction:
 ## Handover Workflow (Unified multi-machine sync)
 
 Preferred trigger: `handover` / `handover please`
-
-Compatibility trigger: `handoff` / `handoff please`
 
 Purpose: Cleanly reconcile local and remote state so development can continue on any computer from the latest valid branch and commit set.
 
@@ -172,8 +172,69 @@ Expected outcome:
 
 Approval rules:
 
-- Using the `handover` or `handoff` trigger grants approval to push the current branch and relevant tags **for this workflow only**.
+- Using the `handover` trigger grants approval to push the current branch and relevant tags **for this workflow only**.
 - Any other remote push still requires explicit approval.
+
+---
+
+## Deploy Workflow (Runtime build and installation)
+
+Trigger: `deploy` / `deploy please`
+
+Purpose: Build a runtime-ready artifact for the current repo and install or update it in the target environment safely.
+
+Safety principle: deployment must preserve recoverability. Do not overwrite the only known-good runtime blindly, and do not run destructive environment changes unless the repo profile defines them explicitly.
+
+Behaviour (repo-specific, but controlled):
+
+1. **Preflight**
+  - Confirm current branch, working tree state, and working directory.
+  - Confirm the configured deployment target profile for this repo.
+  - Confirm whether deployment requires a clean and synced branch before continuing.
+
+2. **Sync / release prerequisite**
+  - If the repo policy requires a clean synced branch, stop or run `handover` first.
+  - If the repo policy requires a shipped state before deployment, run the full SHIP/TCTBP workflow first.
+  - Otherwise continue from the current validated commit.
+
+3. **Verification gate**
+  - Run the repo verification commands from the Project Profile.
+  - Run the normal build gate first.
+  - Use the runtime or release build only for deployment packaging and installation.
+
+4. **Docs impact**
+  - Review packaging, runtime, installer, or deployment documentation when the deployable artefact or install path changes.
+  - Record either `Docs updated` or `No docs impact` with a short reason.
+
+5. **Runtime build**
+  - Run the repo's release build command.
+  - Produce the deployable runtime artefact defined by the repo profile.
+
+6. **Preserve existing runtime when practical**
+  - If the target profile defines backup or replacement safeguards, apply them before replacing an existing runtime.
+  - Never remove the only known-good runtime first unless the repo profile explicitly allows it.
+
+7. **Deploy target steps**
+  - Execute the repo-defined install, copy, packaging, or launcher update steps for the chosen target profile.
+  - Run any repo-defined migration or post-install command only if configured.
+
+8. **Post-deploy validation**
+  - Verify the deployed runtime artefact exists in its expected location.
+  - Verify the deployed launcher or metadata exists when relevant.
+  - Run any configured post-deploy checks.
+
+9. **Summary**
+  - Summarise: target profile, prerequisite actions taken, runtime artefact built, install/update steps performed, validations run, and rollback notes if relevant.
+
+Expected outcome:
+
+- After a successful `deploy`, the repo's runtime artefact is built using the runtime build path and updated in the configured target environment.
+- The deployment result is validated, not merely copied.
+
+Approval rules:
+
+- Using the `deploy` trigger grants approval to run the repo-defined deployment commands for this workflow only.
+- If deployment also triggers a `ship` or `handover`, their normal push and sync rules still apply.
 
 ---
 
@@ -259,6 +320,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 - Branch switching and merging
 - **Non-destructive remote reads** (`fetch`, logs, diffs)
 - Fast-forward pulls on a clean working tree
+- Repo-defined non-destructive deployment checks
 
 **Require Explicit Approval**
 
@@ -269,6 +331,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 - Hard reset or destructive checkout
 - Rebase as a sync shortcut
 - Modify remotes
+- Repo-defined destructive deployment or migration steps outside the approved deploy profile
 
 **Clarification:** There is no concept of a "push to a local branch". Local commits are always allowed; any `git push` that updates a remote always requires approval.
 
@@ -308,7 +371,7 @@ The agent should prefer a small, accurate docs update over a broad rewrite.
 {
   "schemaVersion": 1,
   "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handover", "handover please", "handoff", "handoff please"],
+    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "deploy", "deploy please", "handover", "handover please"],
     "caseInsensitive": true,
     "branchCommand": {
       "enabled": true,
@@ -321,7 +384,6 @@ The agent should prefer a small, accurate docs update over a broad rewrite.
   },
   "handover": {
     "preferredTriggers": ["handover", "handover please"],
-    "compatibilityTriggers": ["handoff", "handoff please"],
     "primaryObjective": "No code is ever lost while syncing local and remote state.",
     "preserveUncommittedChanges": true,
     "requireDurableCheckpointBeforeReconciliation": true,
@@ -335,6 +397,18 @@ The agent should prefer a small, accurate docs update over a broad rewrite.
     "pushCurrentBranch": true,
     "createUpstreamIfMissing": true,
     "pushTagsWhenPresent": true
+  },
+  "deploy": {
+    "preferredTriggers": ["deploy", "deploy please"],
+    "requireCleanTree": true,
+    "requireSyncedBranch": true,
+    "requireShipFirst": false,
+    "buildCommand": "cargo build --release",
+    "migrationCommand": null,
+    "postDeployChecks": [
+      "test -x ~/.local/bin/rust-clock",
+      "test -f ~/.local/share/applications/rust-clock.desktop"
+    ]
   },
   "documentation": {
     "requireImpactAssessment": true,

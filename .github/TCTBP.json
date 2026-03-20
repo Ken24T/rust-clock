@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handover", "handover please", "handoff", "handoff please"],
+    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "deploy", "deploy please", "handover", "handover please"],
     "caseInsensitive": true,
     "branchCommand": {
       "enabled": true,
@@ -24,7 +24,6 @@
   },
   "handover": {
     "preferredTriggers": ["handover", "handover please"],
-    "compatibilityTriggers": ["handoff", "handoff please"],
     "primaryObjective": "No code is ever lost while syncing local and remote state.",
     "purpose": "Reconcile local and remote branch state so any machine can continue from the latest validated shared work.",
     "preserveUncommittedChanges": true,
@@ -39,6 +38,37 @@
     "allowDestructiveCheckout": false,
     "allowForcePush": false,
     "pushTagsWhenPresent": true
+  },
+  "deploy": {
+    "preferredTriggers": ["deploy", "deploy please"],
+    "purpose": "Build a runtime-ready artefact and update it safely in the configured target environment.",
+    "requireCleanTree": true,
+    "requireSyncedBranch": true,
+    "requireShipFirst": false,
+    "buildCommand": "cargo build --release",
+    "migrationCommand": null,
+    "targets": {
+      "linux-user-local": {
+        "description": "Install the release binary and desktop entry into the current user's local application paths.",
+        "installCommands": [
+          "install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock",
+          "install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop"
+        ],
+        "postDeployChecks": [
+          "test -x ~/.local/bin/rust-clock",
+          "test -f ~/.local/share/applications/rust-clock.desktop"
+        ]
+      },
+      "windows-installer": {
+        "description": "Build the Windows installer package for deployment or distribution.",
+        "installCommands": [
+          "pwsh -File .\\installer\\windows\\build-installer.ps1"
+        ],
+        "postDeployChecks": [
+          "test -d dist/windows"
+        ]
+      }
+    }
   },
   "documentation": {
     "requireImpactAssessment": true,
