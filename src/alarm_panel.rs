@@ -29,6 +29,9 @@ const TIMER_PRESETS: &[(u64, &str)] = &[
     (3600, "1 hour"),
 ];
 
+/// Maximum body height before the panel content becomes scrollable.
+const PANEL_BODY_MAX_HEIGHT: f32 = 420.0;
+
 /// Build the alarm panel overlay as an iced Element.
 pub fn alarm_panel<'a>(
     manager: &'a AlarmManager,
@@ -126,23 +129,31 @@ pub fn alarm_panel<'a>(
         .into(),
     );
 
-    let mut panel_items: Vec<Element<'_, Message>> = vec![
-        header_row.into(),
-        separator,
-        presets.into(),
-        separator_widget(chrome),
-    ];
-    panel_items.extend(build_form_elements(form, chrome));
-    panel_items.push(separator_widget(chrome));
-    panel_items.push(list_label.into());
-    panel_items.push(scrollable(alarm_list).height(Length::Shrink).into());
-    panel_items.push(separator_widget(chrome));
-    panel_items.push(row(bottom_row).spacing(6).into());
+    let mut body_items: Vec<Element<'_, Message>> = vec![presets.into(), separator_widget(chrome)];
+    body_items.extend(build_form_elements(form, chrome));
+    body_items.push(separator_widget(chrome));
+    body_items.push(list_label.into());
+    body_items.push(alarm_list.into());
 
-    let panel_col = column(panel_items)
-        .spacing(6)
-        .padding(12)
-        .width(Length::Fixed(260.0));
+    let body_content = column(body_items).spacing(6);
+    let body: Element<'_, Message> = if active.is_empty() {
+        body_content.into()
+    } else {
+        scrollable(body_content)
+            .height(Length::Fixed(PANEL_BODY_MAX_HEIGHT))
+            .into()
+    };
+
+    let panel_col = column![
+        header_row,
+        separator,
+        body,
+        separator_widget(chrome),
+        row(bottom_row).spacing(6),
+    ]
+    .spacing(6)
+    .padding(12)
+    .width(Length::Fixed(260.0));
 
     let panel = container(panel_col)
         .style(move |theme| panel_style(theme, chrome))
@@ -245,6 +256,15 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
     // Add mode-specific fields directly (flattened).
     match form.mode {
         AlarmFormMode::Timer => {
+            let timer_minutes_input = text_input("Minutes", &form.timer_minutes)
+                .size(11)
+                .padding(Padding::from([3, 6]))
+                .style(move |theme, status| form_input_style(theme, status, chrome));
+            let cadence_input = text_input("Time cadence (minutes)", &form.timer_cadence_minutes)
+                .size(11)
+                .padding(Padding::from([3, 6]))
+                .style(move |theme, status| form_input_style(theme, status, chrome));
+
             elements.push(
                 text("Timer cadence")
                     .size(10)
@@ -269,21 +289,20 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
                 )
                 .into(),
             );
-            elements.push(
-                text_input(
-                    if form.timer_repeat == TimerRepeatMode::Repeating {
-                        "Interval minutes"
-                    } else {
-                        "Minutes"
-                    },
-                    &form.timer_minutes,
-                )
-                .on_input(Message::AlarmFormMinutesChanged)
-                .size(11)
-                .padding(Padding::from([3, 6]))
-                .style(move |theme, status| form_input_style(theme, status, chrome))
-                .into(),
-            );
+            elements.push(if form.timer_repeat == TimerRepeatMode::Once {
+                timer_minutes_input
+                    .on_input(Message::AlarmFormMinutesChanged)
+                    .into()
+            } else {
+                timer_minutes_input.into()
+            });
+            elements.push(if form.timer_repeat == TimerRepeatMode::Repeating {
+                cadence_input
+                    .on_input(Message::AlarmFormCadenceMinutesChanged)
+                    .into()
+            } else {
+                cadence_input.into()
+            });
         }
         AlarmFormMode::Alarm => {
             elements.push(text("Schedule").size(10).color(chrome.muted_text).into());

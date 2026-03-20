@@ -224,6 +224,8 @@ enum Message {
     AlarmFormMessageChanged(String),
     /// Form: timer minutes text changed.
     AlarmFormMinutesChanged(String),
+    /// Form: repeating timer cadence text changed.
+    AlarmFormCadenceMinutesChanged(String),
     /// Form: alarm time (HH:MM) changed.
     AlarmFormTimeChanged(String),
     /// Form: alarm date (YYYY-MM-DD) changed.
@@ -444,29 +446,51 @@ impl ClockApp {
         };
 
         let kind = match form.mode {
-            AlarmFormMode::Timer => {
-                let minutes: u64 = match form.timer_minutes.trim().parse() {
-                    Ok(m) if m > 0 => m,
-                    _ => {
-                        eprintln!("Invalid timer minutes: {}", form.timer_minutes);
-                        return;
-                    }
-                };
-                let duration_secs = match minutes.checked_mul(60) {
-                    Some(secs) => secs,
-                    None => {
-                        eprintln!("Timer minutes are too large: {}", form.timer_minutes);
-                        return;
-                    }
-                };
-                match form.timer_repeat {
-                    TimerRepeatMode::Once => AlarmKind::from_now(duration_secs),
-                    TimerRepeatMode::Repeating => AlarmKind::RepeatingInterval {
-                        interval_secs: duration_secs,
-                        next_target: Local::now() + Duration::seconds(duration_secs as i64),
-                    },
+            AlarmFormMode::Timer => match form.timer_repeat {
+                TimerRepeatMode::Once => {
+                    let minutes: u64 = match form.timer_minutes.trim().parse() {
+                        Ok(m) if m > 0 => m,
+                        _ => {
+                            eprintln!("Invalid timer minutes: {}", form.timer_minutes);
+                            return;
+                        }
+                    };
+                    let duration_secs = match minutes.checked_mul(60) {
+                        Some(secs) => secs,
+                        None => {
+                            eprintln!("Timer minutes are too large: {}", form.timer_minutes);
+                            return;
+                        }
+                    };
+                    AlarmKind::from_now(duration_secs)
                 }
-            }
+                TimerRepeatMode::Repeating => {
+                    let cadence_minutes: u64 = match form.timer_cadence_minutes.trim().parse() {
+                        Ok(m) if m > 0 => m,
+                        _ => {
+                            eprintln!(
+                                "Invalid timer cadence minutes: {}",
+                                form.timer_cadence_minutes
+                            );
+                            return;
+                        }
+                    };
+                    let interval_secs = match cadence_minutes.checked_mul(60) {
+                        Some(secs) => secs,
+                        None => {
+                            eprintln!(
+                                "Timer cadence minutes are too large: {}",
+                                form.timer_cadence_minutes
+                            );
+                            return;
+                        }
+                    };
+                    AlarmKind::RepeatingInterval {
+                        interval_secs,
+                        next_target: Local::now() + Duration::seconds(interval_secs as i64),
+                    }
+                }
+            },
             AlarmFormMode::Alarm => {
                 let time = match NaiveTime::parse_from_str(form.alarm_time.trim(), "%H:%M") {
                     Ok(t) => t,
@@ -851,6 +875,10 @@ impl ClockApp {
                 self.alarm_form.timer_minutes = value;
                 Task::none()
             }
+            Message::AlarmFormCadenceMinutesChanged(value) => {
+                self.alarm_form.timer_cadence_minutes = value;
+                Task::none()
+            }
             Message::AlarmFormTimeChanged(value) => {
                 self.alarm_form.alarm_time = value;
                 Task::none()
@@ -861,6 +889,7 @@ impl ClockApp {
             }
             Message::AlarmFormSetTimerRepeat(mode) => {
                 self.alarm_form.timer_repeat = mode;
+                self.alarm_form.sync_timer_fields_for_repeat_mode();
                 Task::none()
             }
             Message::AlarmFormSetAlarmRepeat(mode) => {
@@ -1026,7 +1055,7 @@ fn main_window_position(config: &AppConfig) -> Point {
 fn control_window_size(content: ControlWindowContent) -> Size {
     match content {
         ControlWindowContent::Menu => Size::new(300.0, 420.0),
-        ControlWindowContent::AlarmPanel => Size::new(300.0, 520.0),
+        ControlWindowContent::AlarmPanel => Size::new(300.0, 580.0),
     }
 }
 

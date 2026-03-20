@@ -72,8 +72,10 @@ pub struct AlarmForm {
     pub label: String,
     /// Optional notification message.
     pub message: String,
-    /// Duration in minutes (Timer mode).
+    /// Duration in minutes for one-shot timers.
     pub timer_minutes: String,
+    /// Interval cadence in minutes for repeating timers.
+    pub timer_cadence_minutes: String,
     /// Target time as "HH:MM" (Alarm mode).
     pub alarm_time: String,
     /// Target date as "YYYY-MM-DD" (Alarm mode, blank = today).
@@ -112,10 +114,11 @@ impl AlarmForm {
                 ..
             } => {
                 self.mode = AlarmFormMode::Timer;
-                self.timer_minutes = format!("{}", duration_secs / 60);
                 self.timer_repeat = if matches!(alarm.kind, AlarmKind::RepeatingInterval { .. }) {
+                    self.timer_cadence_minutes = format!("{}", duration_secs / 60);
                     TimerRepeatMode::Repeating
                 } else {
+                    self.timer_minutes = format!("{}", duration_secs / 60);
                     TimerRepeatMode::Once
                 };
             }
@@ -173,6 +176,18 @@ impl AlarmForm {
         self.selected_weekdays
             .sort_by_key(|weekday| weekday.sort_order());
         self.selected_weekdays.dedup();
+    }
+
+    pub fn sync_timer_fields_for_repeat_mode(&mut self) {
+        match self.timer_repeat {
+            TimerRepeatMode::Once if self.timer_minutes.trim().is_empty() => {
+                self.timer_minutes = self.timer_cadence_minutes.clone();
+            }
+            TimerRepeatMode::Repeating if self.timer_cadence_minutes.trim().is_empty() => {
+                self.timer_cadence_minutes = self.timer_minutes.clone();
+            }
+            TimerRepeatMode::Once | TimerRepeatMode::Repeating => {}
+        }
     }
 }
 
