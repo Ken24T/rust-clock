@@ -16,6 +16,24 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Compact kind marker for items projected onto the clock face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaceActiveItemKind {
+    Alarm,
+    Timer,
+}
+
+/// A face-oriented summary of an active alarm or timer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FaceActiveItem {
+    pub id: Uuid,
+    pub label: String,
+    pub description: Option<String>,
+    pub kind: FaceActiveItemKind,
+    pub target: DateTime<Local>,
+    pub remaining_text: String,
+}
+
 // -- Alarm form state (held by the application) ---------------------------
 
 /// Whether the form is creating a countdown timer or a fixed-time alarm.
@@ -241,6 +259,39 @@ impl Alarm {
             AlarmKind::AtTime { .. } => "alarm",
             AlarmKind::Timer { .. } => "timer",
         }
+    }
+
+    /// Project this alarm into a compact face-visible summary when active.
+    pub fn face_active_item(&self) -> Option<FaceActiveItem> {
+        if !self.enabled || self.fired {
+            return None;
+        }
+
+        let label = if self.label.trim().is_empty() {
+            match self.kind {
+                AlarmKind::AtTime { .. } => "Alarm".to_string(),
+                AlarmKind::Timer { .. } => "Timer".to_string(),
+            }
+        } else {
+            self.label.trim().to_string()
+        };
+
+        Some(FaceActiveItem {
+            id: self.id,
+            label,
+            description: self
+                .message
+                .as_ref()
+                .map(|message| message.trim())
+                .filter(|message| !message.is_empty())
+                .map(ToOwned::to_owned),
+            kind: match self.kind {
+                AlarmKind::AtTime { .. } => FaceActiveItemKind::Alarm,
+                AlarmKind::Timer { .. } => FaceActiveItemKind::Timer,
+            },
+            target: self.kind.target(),
+            remaining_text: self.remaining_display(),
+        })
     }
 }
 

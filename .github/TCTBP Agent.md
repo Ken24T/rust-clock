@@ -24,8 +24,10 @@ A Project Profile defines:
 - How to run **lint/static checks**
 - How to run **tests**
 - How to run **build/compile** (if applicable)
+- Whether a separate **release build** exists and when it should be used
 - Where/how to **bump version**
 - Tagging policy
+- Documentation impact rules and which docs must be reviewed for different change types
 
 ---
 
@@ -79,7 +81,7 @@ Behaviour (local-first, remote-safe):
    - If there are uncommitted changes or commits since the last `X.Y.Z` tag, recommend SHIP.
    - If agreed, run the full SHIP workflow **before** branching.
 
-2. **Merge current branch into local \ ****************main****************.**
+2. **Merge current branch into local \ main.**
 
    - Ensure working tree is clean.
    - Checkout `main`.
@@ -130,30 +132,38 @@ Behaviour (safe, deterministic):
   - Proceed only if tests pass at 100% when a commit or merge is needed.
   - Stop immediately on failure and report.
 
-5. **Commit everything**
+5. **Documentation impact**
+  - Classify the change set as one or more of: `user-visible-feature`, `ui-or-interaction`, `config-or-settings`, `packaging-or-metadata`, `roadmap-or-status`, `internal-only`.
+  - Review the documentation files required by the Project Profile / `TCTBP.json` rules.
+  - Before committing, report either:
+    - `Docs updated`, listing changed files, or
+    - `No docs impact`, with a short reason.
+  - If required documentation is clearly stale relative to the change set, stop and fix it before continuing.
+
+6. **Commit everything**
   - If staged changes exist, commit them automatically with a clear message.
   - Use this commit as the durable local checkpoint before any reconciliation that could otherwise alter the working tree.
 
-6. **Ship if needed**
+7. **Ship if needed**
   - If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
   - If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
   - Otherwise skip bump/tag and continue.
 
-7. **Reconcile branch state**
+8. **Reconcile branch state**
   - If the tracked remote branch is ahead and local is clean, fast-forward local to the remote branch.
   - If local and remote have diverged, stop and report the divergence for explicit resolution.
   - Never auto-rebase, never hard reset, and never perform a destructive checkout to achieve reconciliation.
   - If there is ambiguity about which side contains the newest valid work, stop and preserve both histories.
   - If local is ahead, prepare to publish the current branch.
 
-8. **Push synced state**
+9. **Push synced state**
   - Push the current branch to `origin`.
   - If the branch has no upstream yet, create the upstream on first push.
   - Push tags (if a SHIP occurred or tags exist).
   - Never force-push as part of handover.
 
-9. **Summary**
-  - Summarise: branch, upstream status, commits created, tests run, reconciliation result, and pushes performed.
+10. **Summary**
+  - Summarise: branch, upstream status, commits created, tests run, documentation review result, reconciliation result, and pushes performed.
 
 Expected outcome:
 
@@ -169,7 +179,7 @@ Approval rules:
 
 ## SHIP / TCTBP Workflow
 
-**SHIP = Preflight → Test → Problems → Bump → Commit → Tag → Push**
+**SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push**
 
 ### 1. Preflight
 
@@ -187,11 +197,23 @@ Run repo test commands per Project Profile. Stop on failure.
 
 ### 3. Problems
 
-Ensure lint, build, and test diagnostics are clean (zero warnings if enforced).
+Ensure lint, configured build, and test diagnostics are clean (zero warnings if enforced).
+
+If the repo distinguishes between a normal build and a release build, the normal build is the default gate. Release builds should only run when explicitly required by repo policy or user instruction, such as installation, packaging, or deployment work.
 
 ---
 
-### 4. Bump Version
+### 4. Docs Impact
+
+- Classify the change set using the repo documentation rules.
+- Determine which documentation files must be reviewed.
+- Update those docs when behaviour, configuration, packaging, or project status has changed.
+- If no docs changes are needed, explicitly record `No docs impact` with a short reason before continuing.
+- SHIP must not proceed while required documentation is stale.
+
+---
+
+### 5. Bump Version
 
 **Versioning rules:**
 
@@ -203,7 +225,7 @@ The bump must be applied **before committing**, so the resulting commit contains
 
 ---
 
-### 5. Commit
+### 6. Commit
 
 - Stage relevant changes
 - Propose a conventional commit message
@@ -212,7 +234,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 
 ---
 
-### 6. Tag
+### 7. Tag
 
 - Tag format: `X.Y.Z` (example: `0.5.27`)
 - One tag per shipped commit
@@ -220,7 +242,7 @@ During SHIP, the agent may proceed through **Bump → Commit → Tag** without p
 
 ---
 
-### 7. Push (Approval Required)
+### 8. Push (Approval Required)
 
 - Push current branch only
 - Never push to protected branches
@@ -264,6 +286,22 @@ On any failure:
 
 ---
 
+## Documentation Impact Policy
+
+The repo may define documentation rules in `TCTBP.json`. When present, those rules are authoritative for deciding which docs must be reviewed.
+
+Minimum policy expected for feature work:
+
+- **User-visible feature** changes must review user-facing docs.
+- **UI, interaction, config, or settings** changes must review the user guide and any feature-summary docs.
+- **Roadmap/status** changes must review the implementation plan.
+- **Packaging/metadata** changes must review package metadata and any install/runtime documentation.
+- **Internal-only** changes may skip docs updates, but only with an explicit reason.
+
+The agent should prefer a small, accurate docs update over a broad rewrite.
+
+---
+
 ## Appendix: `TCTBP.json` (Indicative Template)
 
 ```json
@@ -278,7 +316,7 @@ On any failure:
     }
   },
   "workflow": {
-    "order": ["preflight", "test", "problems", "bump", "commit", "tag", "push"],
+    "order": ["preflight", "test", "problems", "docsImpact", "bump", "commit", "tag", "push"],
     "requireApproval": ["push"]
   },
   "handover": {
@@ -298,9 +336,39 @@ On any failure:
     "createUpstreamIfMissing": true,
     "pushTagsWhenPresent": true
   },
+  "documentation": {
+    "requireImpactAssessment": true,
+    "blockShipIfUnassessed": true,
+    "allowNoDocChangeWithReason": true,
+    "rules": [
+      {
+        "changeType": "user-visible-feature",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "ui-or-interaction",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "config-or-settings",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "roadmap-or-status",
+        "review": ["PLAN.md"]
+      },
+      {
+        "changeType": "packaging-or-metadata",
+        "review": ["README.md", "Cargo.toml", "assets/rust-clock.desktop"]
+      },
+      {
+        "changeType": "internal-only",
+        "review": []
+      }
+    ]
+  },
   "versioning": {
     "scheme": "semver",
-    "patchEveryShip": true,
     "minorOnFirstShipOfBranch": true,
     "majorExplicitOnly": true
   },
@@ -310,4 +378,3 @@ On any failure:
   }
 }
 ```
-

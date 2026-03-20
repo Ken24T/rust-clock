@@ -12,12 +12,14 @@
     "lint": "cargo clippy -- -D warnings",
     "format": "cargo fmt -- --check",
     "test": "cargo test",
-    "build": "cargo build --release",
+    "build": "cargo build",
+    "releaseBuild": "cargo build --release",
+    "releaseBuildPolicy": "explicit-installation-or-deployment-only",
     "versionFile": "Cargo.toml",
     "versionField": "package.version"
   },
   "workflow": {
-    "order": ["preflight", "test", "problems", "bump", "commit", "tag", "push"],
+    "order": ["preflight", "test", "problems", "docsImpact", "bump", "commit", "tag", "push"],
     "requireApproval": ["push"]
   },
   "handover": {
@@ -37,6 +39,45 @@
     "allowDestructiveCheckout": false,
     "allowForcePush": false,
     "pushTagsWhenPresent": true
+  },
+  "documentation": {
+    "requireImpactAssessment": true,
+    "blockShipIfUnassessed": true,
+    "allowNoDocChangeWithReason": true,
+    "changeTypes": [
+      "user-visible-feature",
+      "ui-or-interaction",
+      "config-or-settings",
+      "packaging-or-metadata",
+      "roadmap-or-status",
+      "internal-only"
+    ],
+    "rules": [
+      {
+        "changeType": "user-visible-feature",
+        "review": ["README.md", "docs/user-guide.md", "PLAN.md"]
+      },
+      {
+        "changeType": "ui-or-interaction",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "config-or-settings",
+        "review": ["README.md", "docs/user-guide.md"]
+      },
+      {
+        "changeType": "packaging-or-metadata",
+        "review": ["README.md", "Cargo.toml", "assets/rust-clock.desktop"]
+      },
+      {
+        "changeType": "roadmap-or-status",
+        "review": ["PLAN.md"]
+      },
+      {
+        "changeType": "internal-only",
+        "review": []
+      }
+    ]
   },
   "versioning": {
     "scheme": "semver",

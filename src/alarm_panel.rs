@@ -13,6 +13,7 @@ use iced::widget::{button, center, column, container, row, scrollable, text, tex
 use iced::{Color, Element, Fill, Length, Padding};
 
 use crate::alarm::{Alarm, AlarmForm, AlarmFormMode, AlarmManager};
+use crate::theme::WindowChrome;
 use crate::Message;
 
 /// Quick-timer preset durations (seconds, label).
@@ -26,26 +27,26 @@ const TIMER_PRESETS: &[(u64, &str)] = &[
 ];
 
 /// Build the alarm panel overlay as an iced Element.
-pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Element<'a, Message> {
-    let heading = text("Alarms & Timers")
-        .size(15)
-        .color(Color::from_rgb(0.9, 0.9, 0.9));
+pub fn alarm_panel<'a>(
+    manager: &'a AlarmManager,
+    form: &'a AlarmForm,
+    chrome: WindowChrome,
+) -> Element<'a, Message> {
+    let heading = text("Alarms & Timers").size(15).color(chrome.text);
 
     let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
         .on_press(Message::DismissAlarmPanel)
         .padding(Padding::from([1, 5]))
-        .style(delete_button_style);
+        .style(move |theme, status| delete_button_style(theme, status, chrome));
 
     let header_row = row![heading, close_btn]
         .spacing(6)
         .align_y(alignment::Vertical::Center);
 
-    let separator = separator_widget();
+    let separator = separator_widget(chrome);
 
     // -- Quick timer presets --
-    let preset_label = text("Quick Timer")
-        .size(12)
-        .color(Color::from_rgb(0.7, 0.7, 0.7));
+    let preset_label = text("Quick Timer").size(12).color(chrome.muted_text);
 
     let preset_row_1: Vec<Element<'_, Message>> = TIMER_PRESETS[..3]
         .iter()
@@ -53,7 +54,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
             button(text(*label).size(11).align_x(alignment::Horizontal::Center))
                 .on_press(Message::AddQuickTimer(*secs))
                 .padding(Padding::from([3, 6]))
-                .style(preset_button_style)
+                .style(move |theme, status| preset_button_style(theme, status, chrome))
                 .into()
         })
         .collect();
@@ -64,7 +65,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
             button(text(*label).size(11).align_x(alignment::Horizontal::Center))
                 .on_press(Message::AddQuickTimer(*secs))
                 .padding(Padding::from([3, 6]))
-                .style(preset_button_style)
+                .style(move |theme, status| preset_button_style(theme, status, chrome))
                 .into()
         })
         .collect();
@@ -76,25 +77,22 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
     ]
     .spacing(3);
 
-    // -- Create / edit form --
-    let form_elements = build_form_elements(form);
-
     // -- Active alarms list --
     let active: Vec<&Alarm> = manager.all().iter().filter(|a| a.enabled).collect();
 
     let alarm_list = if active.is_empty() {
         column![text("No active alarms or timers")
             .size(11)
-            .color(Color::from_rgb(0.5, 0.5, 0.5))]
+            .color(chrome.muted_text)]
     } else {
-        let items: Vec<Element<'_, Message>> =
-            active.iter().map(|alarm| alarm_row(alarm)).collect();
+        let items: Vec<Element<'_, Message>> = active
+            .iter()
+            .map(|alarm| alarm_row(alarm, chrome))
+            .collect();
         column(items).spacing(3)
     };
 
-    let list_label = text("Active")
-        .size(12)
-        .color(Color::from_rgb(0.7, 0.7, 0.7));
+    let list_label = text("Active").size(12).color(chrome.muted_text);
 
     // -- Clear / close buttons --
     let mut bottom_row: Vec<Element<'_, Message>> = Vec::new();
@@ -108,7 +106,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
             )
             .on_press(Message::ClearFiredAlarms)
             .padding(Padding::from([3, 8]))
-            .style(preset_button_style)
+            .style(move |theme, status| preset_button_style(theme, status, chrome))
             .into(),
         );
     }
@@ -121,7 +119,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
         )
         .on_press(Message::DismissAlarmPanel)
         .padding(Padding::from([3, 8]))
-        .style(close_button_style)
+        .style(move |theme, status| close_button_style(theme, status, chrome))
         .into(),
     );
 
@@ -129,13 +127,13 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
         header_row.into(),
         separator,
         presets.into(),
-        separator_widget(),
+        separator_widget(chrome),
     ];
-    panel_items.extend(form_elements);
-    panel_items.push(separator_widget());
+    panel_items.extend(build_form_elements(form, chrome));
+    panel_items.push(separator_widget(chrome));
     panel_items.push(list_label.into());
     panel_items.push(scrollable(alarm_list).height(Length::Shrink).into());
-    panel_items.push(separator_widget());
+    panel_items.push(separator_widget(chrome));
     panel_items.push(row(bottom_row).spacing(6).into());
 
     let panel_col = column(panel_items)
@@ -144,7 +142,7 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
         .width(Length::Fixed(260.0));
 
     let panel = container(panel_col)
-        .style(panel_style)
+        .style(move |theme| panel_style(theme, chrome))
         .width(Length::Shrink)
         .height(Length::Shrink);
 
@@ -155,16 +153,14 @@ pub fn alarm_panel<'a>(manager: &'a AlarmManager, form: &'a AlarmForm) -> Elemen
 
 /// Build the create/edit form elements as a flat list (avoids nested columns
 /// which can prevent button click propagation in iced).
-fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
+fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_, Message>> {
     let is_editing = form.editing.is_some();
     let form_heading = if is_editing {
         "Edit Alarm"
     } else {
         "New Alarm"
     };
-    let heading = text(form_heading)
-        .size(12)
-        .color(Color::from_rgb(0.7, 0.7, 0.7));
+    let heading = text(form_heading).size(12).color(chrome.muted_text);
 
     // -- Mode toggle: Timer | Alarm --
     let timer_btn = button(
@@ -174,10 +170,12 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
     )
     .on_press(Message::AlarmFormSetMode(AlarmFormMode::Timer))
     .padding(Padding::from([2, 8]))
-    .style(if form.mode == AlarmFormMode::Timer {
-        active_mode_style
-    } else {
-        preset_button_style
+    .style(move |theme, status| {
+        if form.mode == AlarmFormMode::Timer {
+            active_mode_style(theme, status, chrome)
+        } else {
+            preset_button_style(theme, status, chrome)
+        }
     });
 
     let alarm_btn = button(
@@ -187,10 +185,12 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
     )
     .on_press(Message::AlarmFormSetMode(AlarmFormMode::Alarm))
     .padding(Padding::from([2, 8]))
-    .style(if form.mode == AlarmFormMode::Alarm {
-        active_mode_style
-    } else {
-        preset_button_style
+    .style(move |theme, status| {
+        if form.mode == AlarmFormMode::Alarm {
+            active_mode_style(theme, status, chrome)
+        } else {
+            preset_button_style(theme, status, chrome)
+        }
     });
 
     let mode_row = row![timer_btn, alarm_btn].spacing(4);
@@ -200,14 +200,14 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
         .on_input(Message::AlarmFormLabelChanged)
         .size(11)
         .padding(Padding::from([3, 6]))
-        .style(form_input_style);
+        .style(move |theme, status| form_input_style(theme, status, chrome));
 
     // -- Message input --
     let message_input = text_input("Notification message (optional)", &form.message)
         .on_input(Message::AlarmFormMessageChanged)
         .size(11)
         .padding(Padding::from([3, 6]))
-        .style(form_input_style);
+        .style(move |theme, status| form_input_style(theme, status, chrome));
 
     // -- Submit / cancel buttons --
     let submit_label = if is_editing { "Save" } else { "Add" };
@@ -218,7 +218,7 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
     )
     .on_press(Message::AlarmFormSubmit)
     .padding(Padding::from([3, 8]))
-    .style(submit_button_style);
+    .style(move |theme, status| submit_button_style(theme, status, chrome));
 
     let cancel_label = if is_editing { "Cancel" } else { "Clear" };
     let cancel_btn = button(
@@ -228,7 +228,7 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
     )
     .on_press(Message::AlarmFormCancel)
     .padding(Padding::from([3, 8]))
-    .style(close_button_style);
+    .style(move |theme, status| close_button_style(theme, status, chrome));
 
     let action_row: Vec<Element<'_, Message>> = vec![submit_btn.into(), cancel_btn.into()];
 
@@ -247,7 +247,7 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
                     .on_input(Message::AlarmFormMinutesChanged)
                     .size(11)
                     .padding(Padding::from([3, 6]))
-                    .style(form_input_style)
+                    .style(move |theme, status| form_input_style(theme, status, chrome))
                     .into(),
             );
         }
@@ -257,7 +257,7 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
                     .on_input(Message::AlarmFormTimeChanged)
                     .size(11)
                     .padding(Padding::from([3, 6]))
-                    .style(form_input_style)
+                    .style(move |theme, status| form_input_style(theme, status, chrome))
                     .into(),
             );
             elements.push(
@@ -265,7 +265,7 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
                     .on_input(Message::AlarmFormDateChanged)
                     .size(11)
                     .padding(Padding::from([3, 6]))
-                    .style(form_input_style)
+                    .style(move |theme, status| form_input_style(theme, status, chrome))
                     .into(),
             );
         }
@@ -278,20 +278,18 @@ fn build_form_elements(form: &AlarmForm) -> Vec<Element<'_, Message>> {
 // -- Alarm row -------------------------------------------------------------
 
 /// A single alarm row: label, remaining time, kind badge, edit and delete buttons.
-fn alarm_row<'a>(alarm: &'a Alarm) -> Element<'a, Message> {
+fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message> {
     let status_colour = if alarm.fired {
-        Color::from_rgb(0.4, 0.8, 0.4)
+        chrome.success
     } else {
-        Color::from_rgb(0.9, 0.9, 0.9)
+        chrome.text
     };
 
     let label = text(&alarm.label).size(11).color(status_colour);
     let remaining = text(alarm.remaining_display())
         .size(10)
-        .color(Color::from_rgb(0.6, 0.8, 1.0));
-    let kind = text(alarm.kind_label())
-        .size(9)
-        .color(Color::from_rgb(0.5, 0.5, 0.5));
+        .color(chrome.accent);
+    let kind = text(alarm.kind_label()).size(9).color(chrome.muted_text);
 
     // Show message excerpt if present.
     let mut info_items: Vec<Element<'_, Message>> =
@@ -303,195 +301,219 @@ fn alarm_row<'a>(alarm: &'a Alarm) -> Element<'a, Message> {
             } else {
                 msg.clone()
             };
-            info_items.push(
-                text(excerpt)
-                    .size(9)
-                    .color(Color::from_rgb(0.6, 0.6, 0.5))
-                    .into(),
-            );
+            info_items.push(text(excerpt).size(9).color(chrome.muted_text).into());
         }
     }
 
     let edit_btn = button(text("✎").size(10).align_x(alignment::Horizontal::Center))
         .on_press(Message::EditAlarm(alarm.id))
         .padding(Padding::from([1, 4]))
-        .style(edit_button_style);
+        .style(move |theme, status| edit_button_style(theme, status, chrome));
 
     let delete_btn = button(text("✕").size(10).align_x(alignment::Horizontal::Center))
         .on_press(Message::RemoveAlarm(alarm.id))
         .padding(Padding::from([1, 4]))
-        .style(delete_button_style);
+        .style(move |theme, status| delete_button_style(theme, status, chrome));
 
     let info_col = column(info_items).spacing(1);
     let btn_col = row![edit_btn, delete_btn].spacing(2);
 
     container(row![info_col, btn_col].spacing(6))
         .padding(Padding::from([3, 6]))
-        .style(alarm_row_style)
+        .style(move |theme| alarm_row_style(theme, chrome))
         .width(Fill)
         .into()
 }
 
 /// Thin horizontal separator.
-fn separator_widget<'a>() -> Element<'a, Message> {
+fn separator_widget<'a>(chrome: WindowChrome) -> Element<'a, Message> {
     container(text("").size(1))
         .width(Fill)
         .height(1)
-        .style(separator_style)
+        .style(move |theme| separator_style(theme, chrome))
         .into()
 }
 
 // -- Styles ----------------------------------------------------------------
 
-fn panel_style(_theme: &iced::Theme) -> container::Style {
+fn panel_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
     container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.10, 0.10, 0.14, 0.94,
-        ))),
+        background: Some(iced::Background::Color(chrome.panel_background)),
         border: iced::Border {
-            color: Color::from_rgba(0.35, 0.4, 0.5, 0.8),
+            color: chrome.panel_border,
             width: 1.0,
             radius: 10.0.into(),
         },
-        text_color: Some(Color::WHITE),
-        shadow: iced::Shadow::default(),
+        text_color: Some(chrome.text),
+        shadow: iced::Shadow {
+            color: chrome.panel_shadow,
+            offset: iced::Vector::new(0.0, 2.0),
+            blur_radius: 10.0,
+        },
         snap: false,
     }
 }
 
-fn alarm_row_style(_theme: &iced::Theme) -> container::Style {
+fn alarm_row_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
     container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.18, 0.18, 0.22, 0.6,
-        ))),
+        background: Some(iced::Background::Color(chrome.surface)),
         border: iced::Border {
-            radius: 4.0.into(),
-            ..iced::Border::default()
-        },
-        ..container::Style::default()
-    }
-}
-
-fn separator_style(_theme: &iced::Theme) -> container::Style {
-    container::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.5, 0.5, 0.5, 0.3,
-        ))),
-        ..container::Style::default()
-    }
-}
-
-fn preset_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.25, 0.45, 0.7, 0.7),
-        _ => Color::from_rgba(0.2, 0.2, 0.28, 0.6),
-    };
-    button::Style {
-        background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.85, 0.9, 1.0),
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn active_mode_style(_theme: &iced::Theme, _status: button::Status) -> button::Style {
-    button::Style {
-        background: Some(iced::Background::Color(Color::from_rgba(
-            0.25, 0.5, 0.8, 0.8,
-        ))),
-        text_color: Color::WHITE,
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn submit_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.2, 0.6, 0.3, 0.8),
-        _ => Color::from_rgba(0.15, 0.45, 0.25, 0.6),
-    };
-    button::Style {
-        background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.9, 1.0, 0.9),
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn close_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.35, 0.35, 0.4, 0.7),
-        _ => Color::from_rgba(0.25, 0.25, 0.3, 0.5),
-    };
-    button::Style {
-        background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.8, 0.8, 0.8),
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn edit_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.3, 0.45, 0.7, 0.7),
-        _ => Color::TRANSPARENT,
-    };
-    button::Style {
-        background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.5, 0.6, 0.8),
-        border: iced::Border {
-            radius: 3.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn delete_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered | button::Status::Pressed => Color::from_rgba(0.7, 0.2, 0.2, 0.7),
-        _ => Color::TRANSPARENT,
-    };
-    button::Style {
-        background: Some(iced::Background::Color(bg)),
-        text_color: Color::from_rgb(0.7, 0.4, 0.4),
-        border: iced::Border {
-            radius: 3.0.into(),
-            ..iced::Border::default()
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
-fn form_input_style(_theme: &iced::Theme, _status: text_input::Status) -> text_input::Style {
-    text_input::Style {
-        background: iced::Background::Color(Color::from_rgba(0.15, 0.15, 0.2, 0.8)),
-        border: iced::Border {
-            color: Color::from_rgba(0.4, 0.4, 0.5, 0.6),
+            color: chrome.separator,
             width: 1.0,
             radius: 4.0.into(),
         },
-        icon: Color::from_rgb(0.6, 0.6, 0.6),
-        placeholder: Color::from_rgb(0.45, 0.45, 0.5),
-        value: Color::from_rgb(0.9, 0.9, 0.9),
-        selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
+        ..container::Style::default()
+    }
+}
+
+fn separator_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
+    container::Style {
+        background: Some(iced::Background::Color(chrome.separator)),
+        ..container::Style::default()
+    }
+}
+
+fn preset_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        _ => chrome.surface,
+    };
+    button::Style {
+        background: Some(iced::Background::Color(bg)),
+        text_color: chrome.text,
+        border: iced::Border {
+            color: chrome.panel_border,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn active_mode_style(
+    _theme: &iced::Theme,
+    _status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    button::Style {
+        background: Some(iced::Background::Color(chrome.accent_soft)),
+        text_color: chrome.accent_soft_text,
+        border: iced::Border {
+            color: chrome.accent,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn submit_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let (bg, text_color) = match status {
+        button::Status::Hovered | button::Status::Pressed => (chrome.success, chrome.success_text),
+        _ => (chrome.success_soft, chrome.success_soft_text),
+    };
+    button::Style {
+        background: Some(iced::Background::Color(bg)),
+        text_color,
+        border: iced::Border {
+            color: chrome.panel_border,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn close_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        _ => chrome.surface,
+    };
+    button::Style {
+        background: Some(iced::Background::Color(bg)),
+        text_color: chrome.text,
+        border: iced::Border {
+            color: chrome.panel_border,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn edit_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        _ => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(iced::Background::Color(bg)),
+        text_color: chrome.accent,
+        border: iced::Border {
+            radius: 3.0.into(),
+            ..iced::Border::default()
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn delete_button_style(
+    _theme: &iced::Theme,
+    status: button::Status,
+    chrome: WindowChrome,
+) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered | button::Status::Pressed => chrome.danger,
+        _ => Color::TRANSPARENT,
+    };
+    button::Style {
+        background: Some(iced::Background::Color(bg)),
+        text_color: chrome.danger,
+        border: iced::Border {
+            radius: 3.0.into(),
+            ..iced::Border::default()
+        },
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+fn form_input_style(
+    _theme: &iced::Theme,
+    _status: text_input::Status,
+    chrome: WindowChrome,
+) -> text_input::Style {
+    text_input::Style {
+        background: iced::Background::Color(chrome.input_background),
+        border: iced::Border {
+            color: chrome.input_border,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        icon: chrome.muted_text,
+        placeholder: chrome.input_placeholder,
+        value: chrome.text,
+        selection: chrome.selection,
     }
 }

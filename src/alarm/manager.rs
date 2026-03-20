@@ -9,7 +9,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{Alarm, AlarmKind, AlertAction};
+use super::{Alarm, AlarmKind, AlertAction, FaceActiveItem};
 
 /// Wrapper for TOML serialisation of alarm list.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -107,6 +107,17 @@ impl AlarmManager {
         self.alarms.iter().filter(|a| a.enabled && !a.fired).count()
     }
 
+    /// Active alarms/timers projected for compact clock-face display.
+    pub fn face_active_items(&self) -> Vec<FaceActiveItem> {
+        let mut items: Vec<_> = self
+            .alarms
+            .iter()
+            .filter_map(Alarm::face_active_item)
+            .collect();
+        items.sort_by_key(|item| item.target.timestamp());
+        items
+    }
+
     /// Is the list empty?
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
@@ -199,5 +210,29 @@ mod tests {
         // Should not fire again.
         let fired2 = mgr.check_and_fire();
         assert!(fired2.is_empty());
+    }
+
+    #[test]
+    fn face_active_items_are_sorted_and_filtered() {
+        let mut mgr = AlarmManager::default();
+
+        let mut disabled = Alarm::new("Disabled", AlarmKind::from_now(60), AlertAction::Both);
+        disabled.enabled = false;
+
+        let mut fired = Alarm::new("Fired", AlarmKind::from_now(120), AlertAction::Both);
+        fired.fired = true;
+
+        let later = Alarm::new("Later", AlarmKind::from_now(300), AlertAction::Both);
+        let sooner = Alarm::new("Sooner", AlarmKind::from_now(30), AlertAction::Both);
+
+        mgr.alarms.push(later);
+        mgr.alarms.push(disabled);
+        mgr.alarms.push(fired);
+        mgr.alarms.push(sooner);
+
+        let items = mgr.face_active_items();
+        let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+
+        assert_eq!(labels, vec!["Sooner", "Later"]);
     }
 }
