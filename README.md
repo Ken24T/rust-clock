@@ -51,6 +51,14 @@ cargo test
 cargo clippy -- -D warnings
 ```
 
+For interactive review runs, prefer:
+
+```bash
+bash ./scripts/run-dev-harness.sh
+```
+
+That launcher stops only stale instances of this repo's `target/debug/rust-clock` binary before starting a fresh debug session. It does not touch the installed runtime in `~/.local/bin`.
+
 ## Windows Installer
 
 Rust Clock now includes a Windows installer definition based on Inno Setup.

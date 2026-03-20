@@ -26,6 +26,7 @@ A Project Profile defines:
 - How to run **lint/static checks**
 - How to run **tests**
 - How to run **build/compile** (if applicable)
+- How to run any **interactive dev harness** safely when review launches are part of the workflow
 - Whether a separate **release build** exists and when it should be used
 - Where/how to **bump version**
 - Tagging policy
@@ -259,6 +260,17 @@ Approval rules:
 
 ## SHIP / TCTBP Workflow
 
+## Rust Clock Repo Notes
+
+These repo-specific rules apply when the Project Profile resolves to this repository.
+
+### Interactive Review Runs
+
+- Preferred launcher: `bash ./scripts/run-dev-harness.sh`
+- This launcher may stop stale instances of this repo's `target/debug/rust-clock` before starting a fresh review session.
+- It must not target the installed runtime at `~/.local/bin/rust-clock`.
+- Plain `cargo run` remains valid when the hygiene step is intentionally not wanted.
+
 ### SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push
 
 ### Ship 1. Preflight
@@ -266,6 +278,7 @@ Approval rules:
 - Confirm current branch
 - Confirm working tree state
 - Confirm correct working directory
+- For interactive review work, prefer the repo's safe dev-harness launcher instead of raw `cargo run`
 
 ---
 
@@ -428,6 +441,11 @@ The agent should prefer a small, accurate docs update over a broad rewrite.
       "test -x ~/.local/bin/rust-clock",
       "test -f ~/.local/share/applications/rust-clock.desktop"
     ]
+  },
+  "devHarness": {
+    "preferredCommand": "bash ./scripts/run-dev-harness.sh",
+    "staleProcessTarget": "target/debug/rust-clock",
+    "protectedProcessTargets": ["~/.local/bin/rust-clock"]
   },
   "documentation": {
     "requireImpactAssessment": true,

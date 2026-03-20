@@ -19,6 +19,13 @@ Use [TCTBP Agent.md](TCTBP%20Agent.md) for the full workflow rules and guard rai
 - Normal build gate: `cargo build`
 - Runtime or deployment build: `cargo build --release`
 
+## Dev Harness Review
+
+- Preferred review launcher: `bash ./scripts/run-dev-harness.sh`
+- This launcher stops only stale instances of this repo's `target/debug/rust-clock`
+- It must not kill the installed runtime at `~/.local/bin/rust-clock`
+- Use plain `cargo run` when you explicitly do not want the hygiene step
+
 ## Triggers
 
 ### `ship` / `ship please` / `shipping` / `tctbp` / `prepare release`
@@ -27,6 +34,7 @@ Purpose:
 Formal source release workflow.
 
 Attempts to:
+
 - preflight the repo state
 - run verification gates
 - confirm zero problems
@@ -37,11 +45,13 @@ Attempts to:
 - push the current branch
 
 Use when:
+
 - you want a formal shipped version
 - version/tag state needs to be updated
 - the repo should be published as a release milestone
 
 Notes:
+
 - Uses the normal build gate by default, not the release build
 - Patch bump happens on every ship unless the changes are docs-only or infrastructure-only
 - Release build is reserved for installation, packaging, or deployment scenarios
@@ -52,6 +62,7 @@ Purpose:
 Build a runtime-ready artefact and install or package it for the target environment.
 
 Attempts to:
+
 - preflight the repo state and deployment target
 - require a clean tree and synced branch
 - optionally run `ship` first if repo policy requires it
@@ -63,6 +74,7 @@ Attempts to:
 - summarise the deployed result
 
 Use when:
+
 - the runtime should be updated on the local machine
 - a packaged deployable artefact should be produced
 - you need the release build rather than the dev build
@@ -79,6 +91,7 @@ Repo-specific deploy targets:
    - validates `dist/windows` exists afterwards
 
 Current deploy policy:
+
 - `requireCleanTree: true`
 - `requireSyncedBranch: true`
 - `requireShipFirst: false`
@@ -90,6 +103,7 @@ Purpose:
 Safely reconcile local and remote branch state so another machine can continue from the same latest validated work.
 
 Attempts to:
+
 - preflight current branch, tree, and upstream state
 - fetch and compare with `origin`
 - preserve dirty work by staging and committing if needed
@@ -102,11 +116,13 @@ Attempts to:
 - summarise the sync result
 
 Use when:
+
 - you are moving between machines
 - the current branch should be safely published to origin
 - you want the repo reconciled without risking local work loss
 
 Never does:
+
 - auto-rebase
 - hard reset
 - destructive checkout
@@ -118,17 +134,20 @@ Purpose:
 Close out current work cleanly and start the next branch.
 
 Attempts to:
+
 - assess whether the current branch should be shipped first
 - merge current branch into local `main`
 - create and switch to the new branch from updated local `main`
 
 Use when:
+
 - the current line of work is complete enough to close out locally
-- you want a clean next branch starting from updated `main`
+- you want a clean next branch starting from updated local `main`
 
 ## Docs Impact Reminder
 
 Review docs when the change touches:
+
 - user-visible features
 - UI or interaction
 - config or settings
@@ -136,6 +155,7 @@ Review docs when the change touches:
 - roadmap or status
 
 Repo-specific docs commonly reviewed:
+
 - [README.md](../README.md)
 - [docs/user-guide.md](../docs/user-guide.md)
 - [PLAN.md](../PLAN.md)
