@@ -26,11 +26,18 @@ Release-build rule:
 - `cargo build --release` is for explicit installation, packaging, or deployment work.
 - Normal SHIP uses the normal build gate by default.
 
+## Dev Harness Review
+
+- Preferred review launcher: `bash ./scripts/run-dev-harness.sh`
+- This launcher stops only stale instances of this repo's `target/debug/rust-clock`
+- It must not kill installed runtimes outside the repo build tree
+- Use plain `cargo run` when you explicitly do not want the hygiene step
+
 ## Version And Tags
 
 - Version source: `Cargo.toml` field `package.version`
-- Tag format: plain semver, for example `1.1.2`
-- Do not normalise this repo to `v1.1.2` tags unless explicitly requested.
+- Tag format: plain semver, for example `1.2.2`
+- Do not normalise this repo to `v1.2.2` tags unless explicitly requested.
 
 ## Triggers
 
@@ -96,6 +103,11 @@ Repo-specific deploy targets:
   - build: `cargo build --release`
   - install: `sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock`
   - validate: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
+- `linux-user-local`
+  - build: `cargo build --release`
+  - install binary: `install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock`
+  - install desktop entry: `install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop`
+  - validate: confirm both installed files exist
 - `windows-installer`
   - build/package: `pwsh -File .\installer\windows\build-installer.ps1`
   - expected output: versioned installer under `dist/windows/`

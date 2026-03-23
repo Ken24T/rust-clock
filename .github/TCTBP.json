@@ -4,11 +4,11 @@
     "sourceOfTruth": "TCTBP.json",
     "fallbackDocument": "TCTBP Agent.md",
     "templateMode": false,
-    "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, tag format, and deployment expectations when updating these files."
+    "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, tag format, status-report tables, and deployment expectations when updating these files."
   },
   "project": {
     "name": "rust-clock",
-    "description": "Analog clock desklet for Linux with alarms, timers, tray controls, and an early Windows baseline.",
+    "description": "Analog clock desklet for Linux with alarms, timers, tray controls, recurring reminders, and an early Windows baseline.",
     "defaultBranch": "main",
     "versionFiles": ["Cargo.toml"],
     "locale": "en-AU"
@@ -32,6 +32,14 @@
       "tagFormat": "{version}"
     },
     "releaseBuildPolicy": "explicit-installation-or-deployment-only"
+  },
+  "devHarness": {
+    "preferredCommand": "bash ./scripts/run-dev-harness.sh",
+    "staleProcessTarget": "target/debug/rust-clock",
+    "protectedProcessTargets": [
+      "~/.local/bin/rust-clock",
+      "/usr/local/bin/rust-clock"
+    ]
   },
   "activation": {
     "triggers": [
@@ -264,7 +272,7 @@
   },
   "deploy": {
     "preferredTriggers": ["deploy", "deploy please"],
-    "purpose": "Deploy is repo-specific and should be used only for explicit installation or packaging targets such as the local Linux runtime binary or the Windows installer output.",
+    "purpose": "Deploy is repo-specific and should be used only for explicit installation or packaging targets such as the local Linux runtime binary, the per-user Linux install, or the Windows installer output.",
     "stopIfDetachedHead": true,
     "requireCleanTree": true,
     "requireSyncedBranch": true,
@@ -278,6 +286,17 @@
         "installCommand": "sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock",
         "postDeployValidation": [
           "sha256sum target/release/rust-clock /usr/local/bin/rust-clock"
+        ]
+      },
+      "linux-user-local": {
+        "description": "Install the release binary and desktop entry into the current user's local application paths.",
+        "installCommands": [
+          "install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock",
+          "install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop"
+        ],
+        "postDeployChecks": [
+          "test -x ~/.local/bin/rust-clock",
+          "test -f ~/.local/share/applications/rust-clock.desktop"
         ]
       },
       "windows-installer": {

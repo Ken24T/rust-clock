@@ -25,13 +25,14 @@ Repo-specific operational values that must be preserved:
 
 - default branch: `main`
 - version source: `Cargo.toml` field `package.version`
-- tag format: plain semver tags such as `1.1.2`, not `v1.1.2`
+- tag format: plain semver tags such as `1.2.2`, not `v1.2.2`
 - format gate: `cargo fmt -- --check`
 - lint gate: `cargo clippy -- -D warnings`
 - test gate: `cargo test`
 - normal build gate: `cargo build`
 - release build: `cargo build --release`
 - release build policy: use the release build for explicit installation, packaging, or deployment work, not as the default SHIP gate
+- preferred interactive review launcher: `bash ./scripts/run-dev-harness.sh`
 - user-facing docs commonly reviewed: `README.md`, `docs/user-guide.md`, `docs/windows-installer.md`, `PLAN.md`, and feature-specific docs under `docs/`
 - locale: Australian English for user-facing text and comments
 
@@ -60,6 +61,13 @@ Supported workflow triggers are:
 - `branch <new-branch-name>`
 
 Do not treat a bare `tctbp` request as implicit permission to mutate repository state.
+
+## Interactive Review Runs
+
+- preferred launcher: `bash ./scripts/run-dev-harness.sh`
+- the launcher may stop stale instances of this repo's `target/debug/rust-clock` before starting a fresh review session
+- it must not target an installed runtime outside the repo build tree
+- plain `cargo run` remains valid when the hygiene step is intentionally not wanted
 
 ## Docs/Infra-Only Detection
 
@@ -185,6 +193,13 @@ Repo-specific deploy targets:
 - install: `sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock`
 - post-deploy validation: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
 
+### `linux-user-local`
+
+- build: `cargo build --release`
+- install binary: `install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock`
+- install desktop entry: `install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop`
+- post-deploy validation: confirm both installed files exist
+
 ### `windows-installer`
 
 - build/package: `pwsh -File .\installer\windows\build-installer.ps1`
@@ -235,7 +250,7 @@ Versioning rules:
 
 Tagging rules:
 
-- use plain semver tags like `1.1.2`
+- use plain semver tags like `1.2.2`
 - one tag per shipped commit
 - skip tagging when no version bump occurs
 
@@ -250,7 +265,7 @@ Docs impact rules:
 
 For SHIP, handover, and status tables:
 
-- columns must be `Origin`, `Local`, `Status`, `Action(s)`
+- columns must be `Origin`, `Local`, `Status`, and `Action(s)`
 - use `n/a` when there is no meaningful origin-side value
 - keep `Status` diagnostic, not narrative
 - keep `Action(s)` concrete and short

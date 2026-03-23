@@ -31,7 +31,10 @@ const POPUP_GAP: f32 = 18.0;
 const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
 
-use alarm::{play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlertAction};
+use alarm::{
+    play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode, AlertAction,
+    ScheduleWeekday, TimerRepeatMode,
+};
 use clock_face::{ClockFace, HoverWindowContent, OverlayHitTarget};
 use config::{AppConfig, ClockSizePreset};
 use context_menu::ContextMenu;
@@ -78,12 +81,25 @@ fn main_window_settings(config: &AppConfig) -> window::Settings {
 
 /// Application theme: transparent background so the desktop shows through.
 fn clock_theme(app: &ClockApp, window: window::Id) -> iced::Theme {
-    if Some(window) == app.control_window || Some(window) == app.hover_window {
+    if Some(window) == app.hover_window {
         let chrome = window_chrome(&app.config.resolved_theme());
         iced::Theme::custom(
             "Clock Window".to_string(),
             iced::theme::Palette {
                 background: chrome.panel_background,
+                text: chrome.text,
+                primary: chrome.accent,
+                success: chrome.success,
+                danger: chrome.danger,
+                warning: chrome.warning,
+            },
+        )
+    } else if Some(window) == app.control_window {
+        let chrome = window_chrome(&app.config.resolved_theme());
+        iced::Theme::custom(
+            "Clock Control Window".to_string(),
+            iced::theme::Palette {
+                background: Color::TRANSPARENT,
                 text: chrome.text,
                 primary: chrome.accent,
                 success: chrome.success,
@@ -208,10 +224,20 @@ enum Message {
     AlarmFormMessageChanged(String),
     /// Form: timer minutes text changed.
     AlarmFormMinutesChanged(String),
+    /// Form: repeating timer cadence text changed.
+    AlarmFormCadenceMinutesChanged(String),
     /// Form: alarm time (HH:MM) changed.
     AlarmFormTimeChanged(String),
     /// Form: alarm date (YYYY-MM-DD) changed.
     AlarmFormDateChanged(String),
+    /// Form: switch timer between once and repeating interval.
+    AlarmFormSetTimerRepeat(TimerRepeatMode),
+    /// Form: switch alarm between one-shot and recurring schedule.
+    AlarmFormSetAlarmRepeat(AlarmRepeatMode),
+    /// Form: pick the weekday for weekly recurring alarms.
+    AlarmFormSetWeeklyWeekday(ScheduleWeekday),
+    /// Form: toggle a weekday for custom recurring alarms.
+    AlarmFormToggleSelectedWeekday(ScheduleWeekday),
     /// Form: switch between Timer and Alarm mode.
     AlarmFormSetMode(AlarmFormMode),
     /// Form: submit (create or update).
@@ -400,8 +426,8 @@ impl ClockApp {
 
     /// Parse the alarm form and create or update an alarm.
     fn submit_alarm_form(&mut self) {
-        use alarm::{Alarm, AlarmKind, AlertAction};
-        use chrono::{Local, LocalResult, NaiveDate, NaiveTime};
+        use alarm::{Alarm, AlarmKind, AlertAction, RecurrenceRule};
+        use chrono::{Duration, Local, LocalResult, NaiveDate, NaiveTime};
 
         let form = &self.alarm_form;
         let label = if form.label.trim().is_empty() {
@@ -420,23 +446,51 @@ impl ClockApp {
         };
 
         let kind = match form.mode {
-            AlarmFormMode::Timer => {
-                let minutes: u64 = match form.timer_minutes.trim().parse() {
-                    Ok(m) if m > 0 => m,
-                    _ => {
-                        eprintln!("Invalid timer minutes: {}", form.timer_minutes);
-                        return;
+            AlarmFormMode::Timer => match form.timer_repeat {
+                TimerRepeatMode::Once => {
+                    let minutes: u64 = match form.timer_minutes.trim().parse() {
+                        Ok(m) if m > 0 => m,
+                        _ => {
+                            eprintln!("Invalid timer minutes: {}", form.timer_minutes);
+                            return;
+                        }
+                    };
+                    let duration_secs = match minutes.checked_mul(60) {
+                        Some(secs) => secs,
+                        None => {
+                            eprintln!("Timer minutes are too large: {}", form.timer_minutes);
+                            return;
+                        }
+                    };
+                    AlarmKind::from_now(duration_secs)
+                }
+                TimerRepeatMode::Repeating => {
+                    let cadence_minutes: u64 = match form.timer_cadence_minutes.trim().parse() {
+                        Ok(m) if m > 0 => m,
+                        _ => {
+                            eprintln!(
+                                "Invalid timer cadence minutes: {}",
+                                form.timer_cadence_minutes
+                            );
+                            return;
+                        }
+                    };
+                    let interval_secs = match cadence_minutes.checked_mul(60) {
+                        Some(secs) => secs,
+                        None => {
+                            eprintln!(
+                                "Timer cadence minutes are too large: {}",
+                                form.timer_cadence_minutes
+                            );
+                            return;
+                        }
+                    };
+                    AlarmKind::RepeatingInterval {
+                        interval_secs,
+                        next_target: Local::now() + Duration::seconds(interval_secs as i64),
                     }
-                };
-                let duration_secs = match minutes.checked_mul(60) {
-                    Some(secs) => secs,
-                    None => {
-                        eprintln!("Timer minutes are too large: {}", form.timer_minutes);
-                        return;
-                    }
-                };
-                AlarmKind::from_now(duration_secs)
-            }
+                }
+            },
             AlarmFormMode::Alarm => {
                 let time = match NaiveTime::parse_from_str(form.alarm_time.trim(), "%H:%M") {
                     Ok(t) => t,
@@ -445,36 +499,108 @@ impl ClockApp {
                         return;
                     }
                 };
-                let date = if form.alarm_date.trim().is_empty() {
-                    Local::now().date_naive()
-                } else {
-                    match NaiveDate::parse_from_str(form.alarm_date.trim(), "%Y-%m-%d") {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Invalid alarm date '{}': {e}", form.alarm_date);
-                            return;
+                match form.alarm_repeat {
+                    AlarmRepeatMode::Once => {
+                        let date = if form.alarm_date.trim().is_empty() {
+                            Local::now().date_naive()
+                        } else {
+                            match NaiveDate::parse_from_str(form.alarm_date.trim(), "%Y-%m-%d") {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    eprintln!("Invalid alarm date '{}': {e}", form.alarm_date);
+                                    return;
+                                }
+                            }
+                        };
+                        let naive_dt = date.and_time(time);
+                        let target = match naive_dt.and_local_timezone(Local) {
+                            LocalResult::Single(target) => target,
+                            LocalResult::Ambiguous(early, late) => {
+                                eprintln!(
+                                    "Ambiguous local alarm time {} (DST transition), using earlier instant over {}",
+                                    early, late
+                                );
+                                early
+                            }
+                            LocalResult::None => {
+                                eprintln!(
+                                    "Invalid local alarm time '{}' on '{}' (DST transition gap)",
+                                    form.alarm_time, form.alarm_date
+                                );
+                                return;
+                            }
+                        };
+                        AlarmKind::at_time(target)
+                    }
+                    AlarmRepeatMode::Daily => {
+                        let schedule = RecurrenceRule::Daily { time };
+                        let next_target = match schedule.next_after(Local::now()) {
+                            Some(target) => target,
+                            None => {
+                                eprintln!("Could not resolve next daily alarm occurrence");
+                                return;
+                            }
+                        };
+                        AlarmKind::RepeatingSchedule {
+                            schedule,
+                            next_target,
                         }
                     }
-                };
-                let naive_dt = date.and_time(time);
-                let target = match naive_dt.and_local_timezone(Local) {
-                    LocalResult::Single(target) => target,
-                    LocalResult::Ambiguous(early, late) => {
-                        eprintln!(
-                            "Ambiguous local alarm time {} (DST transition), using earlier instant over {}",
-                            early, late
-                        );
-                        early
+                    AlarmRepeatMode::Weekdays => {
+                        let schedule = RecurrenceRule::Weekdays { time };
+                        let next_target = match schedule.next_after(Local::now()) {
+                            Some(target) => target,
+                            None => {
+                                eprintln!("Could not resolve next weekday alarm occurrence");
+                                return;
+                            }
+                        };
+                        AlarmKind::RepeatingSchedule {
+                            schedule,
+                            next_target,
+                        }
                     }
-                    LocalResult::None => {
-                        eprintln!(
-                            "Invalid local alarm time '{}' on '{}' (DST transition gap)",
-                            form.alarm_time, form.alarm_date
-                        );
-                        return;
+                    AlarmRepeatMode::Weekly => {
+                        let schedule = RecurrenceRule::Weekly {
+                            weekday: form.weekly_weekday,
+                            time,
+                        };
+                        let next_target = match schedule.next_after(Local::now()) {
+                            Some(target) => target,
+                            None => {
+                                eprintln!("Could not resolve next weekly alarm occurrence");
+                                return;
+                            }
+                        };
+                        AlarmKind::RepeatingSchedule {
+                            schedule,
+                            next_target,
+                        }
                     }
-                };
-                AlarmKind::at_time(target)
+                    AlarmRepeatMode::SelectedWeekdays => {
+                        if form.selected_weekdays.is_empty() {
+                            eprintln!("Select at least one weekday for a custom repeating alarm");
+                            return;
+                        }
+                        let schedule = RecurrenceRule::SelectedWeekdays {
+                            weekdays: form.selected_weekdays.clone(),
+                            time,
+                        };
+                        let next_target = match schedule.next_after(Local::now()) {
+                            Some(target) => target,
+                            None => {
+                                eprintln!(
+                                    "Could not resolve next selected-weekday alarm occurrence"
+                                );
+                                return;
+                            }
+                        };
+                        AlarmKind::RepeatingSchedule {
+                            schedule,
+                            next_target,
+                        }
+                    }
+                }
             }
         };
 
@@ -749,12 +875,33 @@ impl ClockApp {
                 self.alarm_form.timer_minutes = value;
                 Task::none()
             }
+            Message::AlarmFormCadenceMinutesChanged(value) => {
+                self.alarm_form.timer_cadence_minutes = value;
+                Task::none()
+            }
             Message::AlarmFormTimeChanged(value) => {
                 self.alarm_form.alarm_time = value;
                 Task::none()
             }
             Message::AlarmFormDateChanged(value) => {
                 self.alarm_form.alarm_date = value;
+                Task::none()
+            }
+            Message::AlarmFormSetTimerRepeat(mode) => {
+                self.alarm_form.timer_repeat = mode;
+                self.alarm_form.sync_timer_fields_for_repeat_mode();
+                Task::none()
+            }
+            Message::AlarmFormSetAlarmRepeat(mode) => {
+                self.alarm_form.alarm_repeat = mode;
+                Task::none()
+            }
+            Message::AlarmFormSetWeeklyWeekday(weekday) => {
+                self.alarm_form.weekly_weekday = weekday;
+                Task::none()
+            }
+            Message::AlarmFormToggleSelectedWeekday(weekday) => {
+                self.alarm_form.toggle_selected_weekday(weekday);
                 Task::none()
             }
             Message::AlarmFormSetMode(mode) => {
@@ -908,7 +1055,7 @@ fn main_window_position(config: &AppConfig) -> Point {
 fn control_window_size(content: ControlWindowContent) -> Size {
     match content {
         ControlWindowContent::Menu => Size::new(300.0, 420.0),
-        ControlWindowContent::AlarmPanel => Size::new(300.0, 520.0),
+        ControlWindowContent::AlarmPanel => Size::new(300.0, 580.0),
     }
 }
 
@@ -1078,9 +1225,16 @@ fn send_notification(alarm: &alarm::Alarm) {
             alarm::AlarmKind::Timer { duration_secs, .. } => {
                 format!("{} timer finished", format_timer_label(*duration_secs))
             }
+            alarm::AlarmKind::RepeatingInterval { interval_secs, .. } => {
+                format!(
+                    "{} repeating timer fired",
+                    format_timer_label(*interval_secs)
+                )
+            }
             alarm::AlarmKind::AtTime { target } => {
                 format!("Alarm at {}", target.format("%H:%M"))
             }
+            alarm::AlarmKind::RepeatingSchedule { schedule, .. } => schedule.summary(),
         }
     };
     platform::send_notification(&summary, &body);

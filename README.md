@@ -15,7 +15,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Separate clock opacity control so any built-in theme can be tuned from subtle transparency to fully opaque
 - Optional custom theme configuration through TOML
 - Preset-based size tuning with Small, Medium, and Large plus bounded relative adjustment
-- Alarm and timer management panel with create, edit, delete, and quick presets
+- Alarm and timer management panel with one-shot and recurring reminders, create/edit/delete controls, and quick presets
 - Platform tray integration with focus, quick timer, alarm panel, and quit actions where supported
 - Persistent configuration and alarm storage in the XDG config directory
 
@@ -50,6 +50,14 @@ cargo build --release
 cargo test
 cargo clippy -- -D warnings
 ```
+
+For interactive review runs, prefer:
+
+```bash
+bash ./scripts/run-dev-harness.sh
+```
+
+That launcher stops only stale instances of this repo's `target/debug/rust-clock` binary before starting a fresh debug session. It does not touch the installed runtime in `~/.local/bin`.
 
 ## Windows Installer
 
@@ -103,8 +111,9 @@ The right-click settings window currently lets you:
 The alarms panel supports:
 
 - quick timer presets: 1 min, 5 min, 10 min, 15 min, 30 min, 1 hour
-- custom countdown timers entered in minutes
+- custom countdown timers entered in minutes, either once or on a repeating interval
 - fixed alarms for a specific local time and optional date
+- recurring alarms for daily, weekdays-only, weekly, and custom weekday schedules
 - labels and optional notification messages
 - editing existing alarms and timers
 - deleting entries
@@ -172,7 +181,7 @@ User-facing and supporting documents now live under `docs/` unless they are part
 
 ## Current Limitations
 
-- No hourly chime, snooze, recurring alarms, or multi-clock support yet
+- No hourly chime, snooze, or multi-clock support yet
 - No dedicated settings dialog beyond the current control windows
 - Wayland desktop-layer integration is still pending
 - Windows tray support uses a platform-specific backend and should be treated as an early baseline rather than final polished packaging behaviour
