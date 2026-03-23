@@ -1,332 +1,268 @@
-# OpenCode TCTBP Agent – Generic (Draft)
+# Rust Clock — TCTBP Agent
 
 ## Purpose
 
-This agent governs **milestone and shipping actions** for any repository. It exists to safely execute an agreed **TCTBP / SHIP workflow** with strong guard rails, auditability, and human approval at irreversible steps.
+This agent governs milestone, shipping, sync, status, recovery, and deployment actions for Rust Clock.
 
-This agent is **not** for exploratory coding or refactoring. It is activated only when the user signals a milestone (e.g. “ship”, “prepare release”, “tctbp”).
+Primary objective: no code is ever lost while keeping local and remote repository state validated, recoverable, and easy to resume on another machine.
 
----
+This workflow is for explicit operator actions such as `ship`, `handover`, `deploy`, `status`, `abort`, and `branch <name>`. It is not for normal feature implementation work.
 
-## Project Profile (How this agent adapts per repo)
+Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
 
-Before running SHIP steps, the agent must establish a **Project Profile** using (in order):
+## Authoritative Precedence
 
-1. A repo file named `TCTBP.json` (if present)
-2. A repo file named `AGENTS.md` / `README.md` / `CONTRIBUTING.md` (if present)
-3. `package.json`, `pyproject.toml`, `.csproj`, `Cargo.toml`, `go.mod`, `composer.json`, etc.
-4. If still unclear, ask the user to confirm commands **once** and then proceed.
+- `.github/TCTBP.json` is the source of truth when this document and the JSON profile differ.
+- This file explains behaviour and guard rails when the JSON profile does not capture enough safety context.
+- `.github/TCTBP Cheatsheet.md` is the short operator summary.
+- `.github/copilot-instructions.md` contains repo-specific engineering guidance and should stay aligned with the workflow files.
 
-A Project Profile defines:
+## Repo Profile
 
-- How to run **lint/static checks**
-- How to run **tests**
-- How to run **build/compile** (if applicable)
-- Whether a separate **release build** exists and when it should be used
-- Where/how to **bump version**
-- Tagging policy
-- Documentation impact rules and which docs must be reviewed for different change types
+Rust Clock is a Rust + iced application with Linux-first desktop-widget behaviour and an early Windows baseline.
 
----
+Repo-specific operational values that must be preserved:
 
-## Core Invariants (Never Break)
+- default branch: `main`
+- version source: `Cargo.toml` field `package.version`
+- tag format: plain semver tags such as `1.1.2`, not `v1.1.2`
+- format gate: `cargo fmt -- --check`
+- lint gate: `cargo clippy -- -D warnings`
+- test gate: `cargo test`
+- normal build gate: `cargo build`
+- release build: `cargo build --release`
+- release build policy: use the release build for explicit installation, packaging, or deployment work, not as the default SHIP gate
+- user-facing docs commonly reviewed: `README.md`, `docs/user-guide.md`, `docs/windows-installer.md`, `PLAN.md`, and feature-specific docs under `docs/`
+- locale: Australian English for user-facing text and comments
 
-1. **Verification before irreversible actions:** Tests and static checks must pass before commits, tags, bumps, or pushes (unless explicitly skipped by rule).
-2. **Problems count must be zero** before any commit (interpreted as: build/lint/test diagnostics are clean).
-3. **All non-destructive actions are allowed by default.**
-4. **Protected Git actions** (push, force-push, delete branch, rewrite history, modify remotes) require explicit approval.
-5. **Pull Requests are not required.** This workflow assumes a **single-developer model** with direct merges.
-6. **No secrets or credentials** may be introduced or committed.
-7. **User-facing text follows project locale** (default: Australian English).
-8. **Versioned artifacts must stay in sync.**
-9. **Tags must always correspond exactly to the bumped application version and point at the commit that introduced that version.**
+## Core Invariants
 
-If any invariant fails, the agent must **stop immediately**, explain the failure, and wait for instructions.
+1. Verification must pass before irreversible actions unless `TCTBP.json` explicitly allows a docs/infra-only shortcut.
+2. Problems must be zero before any commit.
+3. Protected Git actions such as push, force-push, branch deletion, history rewrite, or remote modification require explicit approval unless granted by the active workflow trigger.
+4. Tags must correspond exactly to the version committed in `Cargo.toml` and point to the commit that introduced that version.
+5. No-code-loss takes priority over workflow completion.
+6. Do not use hard reset, destructive checkout, auto-rebase, or force-push as normal workflow shortcuts.
+7. Keep versioned artefacts, workflow files, and documentation aligned.
+8. Use the normal build gate by default; reserve release builds for install, packaging, or deployment work.
 
----
+If any invariant fails, stop and explain the blocker.
 
-## Activation Signal
+## Supported Triggers
 
-Activate this agent only when the user explicitly uses a clear cue (case-insensitive), for example:
+Supported workflow triggers are:
 
-- `ship`
-- `ship please`
-- `shipping`
-- `tctbp`
-- `prepare release`
-- `handoff`
-- `handoff please`
+- `ship`, `ship please`, `shipping`, `prepare release`
+- `deploy`, `deploy please`
+- `handover`, `handover please`
+- `status`, `status please`
+- `abort`
 - `branch <new-branch-name>`
 
-Do **not** auto-trigger based on context or guesses.
+Do not treat a bare `tctbp` request as implicit permission to mutate repository state.
 
----
+## Docs/Infra-Only Detection
 
-## Branch Workflow (Convenience Command)
+A changeset is docs-only or infrastructure-only only when every changed file matches the repo rules in `TCTBP.json`, for example:
 
-### `branch <new-branch-name>`
+- `*.md`, `*.txt`, `*.rst`
+- `docs/**`
+- `.github/**`
+- `packaging/**`
+- `LICENSE*`, `CHANGELOG*`, `CONTRIBUTING*`
 
-Purpose: Close out the current branch cleanly and start the next one.
+Build manifests, installer definitions, desktop entries, and runtime configuration are not docs-only by default just because they are text files.
 
-Behaviour (local-first, remote-safe):
+## Branch Workflow
 
-1. **Assess whether a SHIP is needed** on the current branch.
+Trigger: `branch <new-branch-name>`
 
-   - If there are uncommitted changes or commits since the last `X.Y.Z` tag, recommend SHIP.
-   - If agreed, run the full SHIP workflow **before** branching.
+Purpose: close out the current branch safely and create the next branch without losing code.
 
-2. **Merge current branch into local \ ****************main****************.**
+Key rules:
 
-   - Ensure working tree is clean.
-   - Checkout `main`.
-   - Merge using a non-destructive merge (no rebase).
-   - Stop on conflicts.
+- stop if `HEAD` is detached
+- validate the requested branch name before mutating anything
+- stop if the target branch already exists locally or on origin
+- stop if the source branch is dirty and SHIP is declined
+- stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
+- fast-forward local `main` when clean and behind origin
+- merge the source branch into `main` non-destructively when the workflow starts on a non-default branch
+- verify the source branch tip is reachable from `main` before optional cleanup
+- require explicit approval for push and branch deletion
 
-3. **Create and switch to the new branch** from updated local `main`.
+Never use stash, reset, rebase, force-push, or destructive checkout as part of the branch workflow.
 
-4. **Remote safety**
+## Handover Workflow
 
-   - Any push requires explicit approval.
+Trigger: `handover` / `handover please`
 
-Versioning interaction:
+Purpose: reconcile the active work branch with origin so work can stop on one machine and resume on another from the latest safely recoverable shared state.
 
-- **Minor (Y) bump occurs on the first SHIP on the new branch**, not at branch creation.
+Scope:
 
----
+- syncs the active work branch
+- syncs relevant tags when needed
+- maintains the metadata branch `tctbp/handover-state`
+- does not attempt to reconcile every branch in the repository
+- does not merge the active work branch into `main` as part of ordinary multi-machine sync
 
-## Handoff Workflow (Sync for multi-machine work)
+Handover metadata:
 
-Trigger: `handoff` / `handoff please`
+- metadata branch: `tctbp/handover-state`
+- metadata file: `.github/TCTBP_STATE.json`
+- metadata is consulted before arbitrary branch-recency inference
+- the metadata branch is never treated as a work branch candidate
 
-Purpose: Cleanly sync work so development can continue on another computer.
+Key safety rules:
 
-Behaviour (safe, deterministic):
+- stop if `HEAD` is detached
+- preserve dirty unpublished work through a durable checkpoint when necessary
+- prefer valid metadata over an arbitrary clean non-default branch
+- ask before switching branches when selection is ambiguous
+- allow fast-forward only when local is clean and behind
+- stop on divergence rather than guessing
+- never auto-merge or auto-rebase as part of reconciliation
+- update the metadata branch using a secondary worktree or another non-destructive mechanism
 
-1. **Preflight**
-  - Report current branch explicitly.
-  - Confirm working tree state.
+Handover summary format:
 
-2. **Stage everything**
-  - Stage all local changes (tracked + new files).
+- use a concise four-column table with `Origin`, `Local`, `Status`, and `Action(s)`
+- keep the final table shorter than `status`
+- confirm target branch state, last shipped tag, metadata branch state, metadata consistency, and final synced baseline
 
-3. **Test gate**
-  - Run the repo test command(s) from the Project Profile.
-  - Proceed only if tests pass at 100%.
-  - Stop immediately on failure and report.
+## Status Workflow
 
-4. **Documentation impact**
-  - Classify the change set as one or more of: `user-visible-feature`, `ui-or-interaction`, `config-or-settings`, `packaging-or-metadata`, `roadmap-or-status`, `internal-only`.
-  - Review the documentation files required by the Project Profile / `TCTBP.json` rules.
-  - Before committing, report either:
-    - `Docs updated`, listing changed files, or
-    - `No docs impact`, with a short reason.
-  - If required documentation is clearly stale relative to the change set, stop and fix it before continuing.
+Trigger: `status` / `status please`
 
-5. **Commit everything**
-  - If staged changes exist, commit them automatically with a clear message.
+Purpose: provide a read-only operator snapshot of the repo.
 
-6. **Ship if needed**
-  - If the release policy says a ship is required (or versions are out of sync), run the full SHIP/TCTBP workflow.
-  - If changes are **docs-only or infrastructure-only** (plans, runbooks, internal guidance), **skip bump/tag** and continue.
-  - Otherwise skip bump/tag and continue.
+Behaviour:
 
-7. **Merge to local main**
-  - Checkout `main` and merge the current branch using a non-destructive merge (no rebase).
-  - Stop on conflicts.
+- fetch remote state first
+- render a four-column table using `Origin`, `Local`, `Status`, and `Action(s)`
+- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `ship` or `handover` is recommended
+- never mutate the repo from `status`
 
-8. **Push**
-  - Push `main` to origin.
-  - Push tags (if a SHIP occurred or tags exist).
+## Abort Workflow
 
-9. **Summary**
-  - Summarise: branch, commits created, tests run, merge result, and pushes performed.
+Trigger: `abort`
 
-Approval rules:
+Purpose: inspect and recover safely from a partially completed workflow.
 
-- Using the `handoff` trigger grants approval to push `main` and tags **for this workflow only**.
-- Any other remote push still requires explicit approval.
+Check for states such as:
 
----
+- version bumped without matching tag
+- tag created but not pushed
+- branch pushed while handover metadata is stale
+- metadata pushed while the target branch is unpublished
+- merge in progress
+- local/remote tag drift
+- changelog updated without a matching version bump
 
-## SHIP / TCTBP Workflow
+Abort must inspect first, propose recovery second, and execute only explicitly approved actions.
 
-**SHIP = Preflight → Test → Problems → Docs Impact → Bump → Commit → Tag → Push**
+## Deploy Workflow
 
-### 1. Preflight
+Trigger: `deploy` / `deploy please`
 
-- Confirm current branch
-- Confirm working tree state
-- Confirm correct working directory
+Purpose: build a runtime-ready artefact or packaging output and install or publish it safely.
 
----
+General rules:
 
-### 2. Test
+- stop if `HEAD` is detached
+- require a clean working tree
+- require a synced branch
+- use `cargo build --release` for deployment work
+- review packaging and install docs impact before mutating deployment targets
+- validate the deployed result rather than merely copying files
 
-Run repo test commands per Project Profile. Stop on failure.
+Repo-specific deploy targets:
 
----
+### `linux-local-runtime`
 
-### 3. Problems
+- build: `cargo build --release`
+- install: `sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock`
+- post-deploy validation: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
 
-Ensure lint, configured build, and test diagnostics are clean (zero warnings if enforced).
+### `windows-installer`
 
-If the repo distinguishes between a normal build and a release build, the normal build is the default gate. Release builds should only run when explicitly required by repo policy or user instruction, such as installation, packaging, or deployment work.
+- build/package: `pwsh -File .\installer\windows\build-installer.ps1`
+- expected output: versioned installer under `dist/windows/`
+- review: `docs/windows-installer.md`, `installer/windows/build-installer.ps1`, `installer/windows/rust-clock.iss`
 
----
+If the requested deployment target is not one of these explicit cases, stop and ask rather than guessing.
 
-### 4. Docs Impact
+## SHIP Workflow
 
-- Classify the change set using the repo documentation rules.
-- Determine which documentation files must be reviewed.
-- Update those docs when behaviour, configuration, packaging, or project status has changed.
-- If no docs changes are needed, explicitly record `No docs impact` with a short reason before continuing.
-- SHIP must not proceed while required documentation is stale.
+Trigger: `ship` / `ship please` / `shipping` / `prepare release`
 
----
+Purpose: create a formal shipped version only from a clean, fetched, synced branch.
 
-### 5. Bump Version
+Workflow order:
 
-**Versioning rules:**
+1. preflight
+2. verify
+3. problems
+4. docs impact
+5. bump
+6. commit
+7. changelog when present
+8. tag
+9. push
 
-- **Z (patch)** increments on **every SHIP**, **except** when the change set is **docs-only or infrastructure-only** (plans, runbooks, internal guidance).
-- **Y (minor)** increments on the **first SHIP of a new work branch**, resetting Z to 0
-- **X (major)** only by explicit instruction
+Preflight guard rails:
 
-The bump must be applied **before committing**, so the resulting commit contains the new version.
+- fetch origin when needed
+- stop if `HEAD` is detached
+- stop if the branch has no upstream
+- stop if the branch is behind or diverged from origin
+- stop if the working tree is dirty
+- render a release-focused four-column snapshot table before mutating anything
 
----
+Verify and build policy:
 
-### 6. Commit
+- normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
+- use `cargo build --release` only when the user explicitly requests installation, packaging, or deployment work, or when deploy workflow requires it
+- docs/infra-only changes may skip heavy code gates according to `TCTBP.json`, but still require editor diagnostics and docs impact assessment
 
-- Stage relevant changes
-- Propose a conventional commit message
+Versioning rules:
 
-During SHIP, the agent may proceed through **Bump → Commit → Tag** without pausing unless a core invariant fails.
+- patch bump on every SHIP except docs-only or infrastructure-only changes
+- first SHIP on a `feature/` branch gets a minor bump instead of a patch bump
+- major bump only by explicit instruction
+- apply version changes to `Cargo.toml` before committing
 
----
+Tagging rules:
 
-### 7. Tag
+- use plain semver tags like `1.1.2`
+- one tag per shipped commit
+- skip tagging when no version bump occurs
 
-- Tag format: `X.Y.Z` (example: `0.5.27`)
-- One tag per shipped commit
-- Tag must point at the commit that introduced the version
+Docs impact rules:
 
----
+- `README.md` and `docs/user-guide.md` for user-visible, UI, or settings changes
+- `docs/windows-installer.md` and installer assets for packaging changes
+- `PLAN.md` and feature-specific planning docs for roadmap/status changes
+- if no docs changes are required, record `No docs impact` with a short reason
 
-### 8. Push (Approval Required)
+## Summary Table Consistency
 
-- Push current branch only
-- Never push to protected branches
+For SHIP, handover, and status tables:
 
----
+- columns must be `Origin`, `Local`, `Status`, `Action(s)`
+- use `n/a` when there is no meaningful origin-side value
+- keep `Status` diagnostic, not narrative
+- keep `Action(s)` concrete and short
 
-## Permissions Expectations (Authoritative)
+## Repo-Specific Preservation Notes
 
-**Allowed by Default**
+When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
 
-- Local file operations
-- Tests, lint, build
-- Commits and local tags
-- Branch switching and merging
-- **Non-destructive remote reads** (`fetch`, logs, diffs)
-
-**Require Explicit Approval**
-
-- Push (any remote)
-- Delete branches
-- Force push
-- Rewrite history
-- Modify remotes
-
-**Clarification:** There is no concept of a "push to a local branch". Local commits are always allowed; any `git push` that updates a remote always requires approval.
-
----
-
-## Failure Behaviour
-
-On any failure:
-
-- Stop immediately
-- Explain the failure
-- Propose safe recovery options (revert bump commit, delete local tag)
-- Never rewrite history without approval
-
----
-
-## Documentation Impact Policy
-
-The repo may define documentation rules in `TCTBP.json`. When present, those rules are authoritative for deciding which docs must be reviewed.
-
-Minimum policy expected for feature work:
-
-- **User-visible feature** changes must review user-facing docs.
-- **UI, interaction, config, or settings** changes must review the user guide and any feature-summary docs.
-- **Roadmap/status** changes must review the implementation plan.
-- **Packaging/metadata** changes must review package metadata and any install/runtime documentation.
-- **Internal-only** changes may skip docs updates, but only with an explicit reason.
-
-The agent should prefer a small, accurate docs update over a broad rewrite.
-
----
-
-## Appendix: `TCTBP.json` (Indicative Template)
-
-```json
-{
-  "schemaVersion": 1,
-  "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handoff", "handoff please"],
-    "caseInsensitive": true,
-    "branchCommand": {
-      "enabled": true,
-      "pattern": "^branch\\s+(.+)$"
-    }
-  },
-  "workflow": {
-    "order": ["preflight", "test", "problems", "docsImpact", "bump", "commit", "tag", "push"],
-    "requireApproval": ["push"]
-  },
-  "documentation": {
-    "requireImpactAssessment": true,
-    "blockShipIfUnassessed": true,
-    "allowNoDocChangeWithReason": true,
-    "rules": [
-      {
-        "changeType": "user-visible-feature",
-        "review": ["README.md", "docs/user-guide.md"]
-      },
-      {
-        "changeType": "ui-or-interaction",
-        "review": ["README.md", "docs/user-guide.md"]
-      },
-      {
-        "changeType": "config-or-settings",
-        "review": ["README.md", "docs/user-guide.md"]
-      },
-      {
-        "changeType": "roadmap-or-status",
-        "review": ["PLAN.md"]
-      },
-      {
-        "changeType": "packaging-or-metadata",
-        "review": ["README.md", "Cargo.toml", "assets/rust-clock.desktop"]
-      },
-      {
-        "changeType": "internal-only",
-        "review": []
-      }
-    ]
-  },
-  "versioning": {
-    "scheme": "semver",
-    "patchEveryShip": true,
-    "minorOnFirstShipOfBranch": true,
-    "majorExplicitOnly": true
-  },
-  "tagging": {
-    "policy": "everyCommit",
-    "format": "{version}"
-  }
-}
-```
-
+- plain numeric release tags instead of `v`-prefixed tags
+- `Cargo.toml` as version source
+- `cargo build` as the default SHIP build gate
+- `cargo build --release` only for explicit deployment/install/packaging work
+- Rust + iced project structure and Windows installer assets under `installer/windows/`
+- docs paths under `docs/` plus `PLAN.md`
+- Australian English conventions

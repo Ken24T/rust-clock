@@ -1,111 +1,118 @@
-# Rust Analog Clock Desklet – Copilot Instructions
+# Rust Clock – Copilot Instructions
 
 ## Project Overview
 
-A classic analog clock desktop widget (desklet) for Linux, built with **Rust + iced**. Renders as a transparent, borderless window sitting on the desktop layer.
+Rust Clock is a Linux-first analog clock widget built with Rust and `iced`, with alarms, timers, tray integration, and desktop-widget behaviour on Linux. Windows is supported as an early cross-platform baseline with a simpler floating-widget interpretation and installer packaging.
 
-**Implementation plan:** See PLAN.md in the repo root for current tasks and progress.
+Implementation status lives in `PLAN.md`. Feature-specific planning and design notes live under `docs/`.
 
-## Project Structure
+## Current Structure
 
 | Path | Purpose |
 |------|---------|
-| `src/main.rs` | Entry point, iced application setup, message loop |
-| `src/clock_face.rs` | Canvas-based analog clock rendering |
-| `src/theme.rs` | Clock colour and style definitions |
-| `src/config.rs` | Configuration load/save (TOML, XDG paths) |
-| `src/platform/` | Platform-specific window management (X11, Wayland) |
-| `assets/` | Desktop entry, icons |
-| `config/` | Default configuration template |
-| `.github/` | Copilot instructions, TCTBP workflow |
+| `src/main.rs` | `iced::daemon` entry point, window orchestration, message loop, workflow wiring |
+| `src/clock_face/` | Clock face canvas rendering, drawing helpers, and reminder overlay layout |
+| `src/alarm/` | Alarm model, persistence, and sound support |
+| `src/alarm_panel.rs` | Alarm and timer control window UI |
+| `src/context_menu.rs` | Settings/control window UI |
+| `src/hover_panel.rs` | Detached reminder hover-detail window |
+| `src/platform/` | Platform abstraction and OS-specific policy hooks |
+| `src/tray.rs` | Tray service integration routed through platform support |
+| `src/config.rs` | Config loading/saving and user preference state |
+| `src/theme.rs` | Built-in themes, colour config, and window chrome styling |
+| `src/app_icon.rs` | Embedded icon/resource helpers |
+| `docs/` | User guide, Windows installer notes, platform plans, feature plans |
+| `installer/windows/` | Windows installer script and Inno Setup definition |
+| `assets/` | Desktop entry and related Linux app metadata |
+| `.github/` | Copilot instructions, TCTBP workflow files, and prompt assets |
 
 ## Development Commands
 
 ```bash
 cargo build                    # Debug build
 cargo run                      # Run in debug mode
-cargo build --release          # Release build (optimised, stripped)
+cargo build --release          # Release build for install/deploy/packaging work
 cargo test                     # Run unit tests
 cargo clippy -- -D warnings    # Lint (zero warnings policy)
 cargo fmt                      # Format code
 cargo fmt -- --check           # Check formatting without modifying
+pwsh -File .\installer\windows\build-installer.ps1   # Windows installer packaging
 ```
-
-**Rust edition:** 2021
-**MSRV:** Stable Rust (latest stable recommended)
 
 ## Key Dependencies
 
 | Crate | Purpose |
 |-------|---------|
-| `iced` (with `canvas`) | GUI framework + custom 2D canvas drawing |
-| `chrono` | Local time access |
-| `serde` + `toml` | Configuration serialisation |
+| `iced` with `canvas` and `tokio` | GUI framework, daemon entry, and custom canvas rendering |
+| `chrono` | Local time, reminder targets, and display formatting |
+| `serde` + `toml` | Config and alarm serialisation |
 | `directories` | XDG config path resolution |
+| `rodio` | Generated reminder/alarm sound playback |
+| `x11rb` | Linux X11 window policy and desktop-style hints |
+| `ksni` | Linux StatusNotifier tray support |
+| `winrt-notification`, `tray-icon`, `windows-sys` | Windows notifications, tray support, and platform integration |
 
 ## Code Patterns
 
-### iced Application
+### Application model
 
-- Use the free-function pattern: `iced::application(title, update, view)`
-- Application builder with `.subscription()`, `.window()`, `.antialiasing()`
-- Initialise with `.run_with()` for custom setup
+- Use `iced::daemon(...)` with free functions for title, update, and view wiring.
+- Open the main clock window explicitly with `window::open(...)` during startup.
+- Keep auxiliary UI in dedicated windows rather than piling more controls into the main canvas.
 
-### Canvas Rendering
+### Canvas and clock-face rendering
 
-- Implement `canvas::Program` for the clock face
-- Use `canvas::Cache` for geometry caching
-- Clear cache on each tick to redraw hands
-- All drawing via `canvas::Frame` methods (`fill`, `stroke`, `fill_text`)
+- Keep clock rendering in `src/clock_face/`.
+- Use `canvas::Program` and `canvas::Cache` for drawing and redraw invalidation.
+- Keep long layout and overlay logic split into helper modules instead of growing `main.rs`.
+- Treat reminder summaries and hover-detail behaviour as clock-face concerns, not settings-window concerns.
 
-### Configuration
+### Platform boundaries
 
-- TOML format at `~/.config/rust-clock/config.toml`
-- Use `directories::ProjectDirs` for XDG path resolution
-- Graceful fallback to defaults on missing/invalid config
+- Put OS-specific logic in `src/platform/` and keep policy selection centralised.
+- Keep Linux-specific window-hint behaviour out of generic UI modules.
+- Keep Windows-specific installer and packaging logic in `installer/windows/` and related docs.
 
-### Platform Abstraction
+### Persistence and config
 
-- `src/platform/mod.rs` dispatches between X11 and Wayland
-- X11: Set `_NET_WM_WINDOW_TYPE_DESKTOP` for desktop-layer behaviour
-- Wayland: Use `wlr-layer-shell` for background layer
+- Config lives in `~/.config/rust-clock/config.toml` on Linux through `directories::ProjectDirs`.
+- Alarm state lives in `~/.config/rust-clock/alarms.toml`.
+- Favour graceful fallback to defaults on missing or invalid user data.
 
-## Critical Rules
+## Critical Repo Rules
 
-1. **Zero `clippy` warnings** – `cargo clippy -- -D warnings` must pass before any commit
-2. **No `unsafe`** without documented justification and a `// SAFETY:` comment
-3. **Regional language** – Use Australian English spelling in all UI text and comments (e.g., "colour", "centre", "initialise")
-4. **Version sync** – Keep version aligned between `Cargo.toml` and git tags
-5. **Keep files under ~300 lines** – Split by responsibility when files grow large
-6. **Handle errors gracefully** – No panics in production paths; use `Result` and meaningful error messages
+1. `cargo clippy -- -D warnings` must pass before any commit.
+2. `cargo test` must pass before any SHIP or handover checkpoint.
+3. Use Australian English in user-facing text and comments.
+4. Keep `Cargo.toml` version and shipped tags aligned.
+5. Preserve the repo’s plain semver tag convention such as `1.1.2` unless explicitly changed.
+6. Do not introduce `unsafe` without a documented justification and a `// SAFETY:` comment.
+7. Prefer focused files and extract modules when logic becomes hard to scan.
+8. Keep `.github/TCTBP.json`, `.github/TCTBP Agent.md`, `.github/TCTBP Cheatsheet.md`, and `.github/copilot-instructions.md` aligned when workflow guidance changes.
 
-## File Organisation
+## Documentation Expectations
 
-- `src/main.rs` – App entry point, message types, iced wiring
-- `src/clock_face.rs` – `ClockFace` struct, `canvas::Program` impl, drawing methods
-- `src/theme.rs` – `ClockTheme` struct with colour definitions
-- `src/config.rs` – `AppConfig` struct, TOML load/save, XDG paths
-- `src/platform/mod.rs` – Platform detection and dispatch
-- `src/platform/x11.rs` – X11-specific window hints
-- `src/platform/wayland.rs` – Wayland layer-shell integration
+When behaviour changes, review the repo docs that match the change:
 
-## When Generating Code
-
-- Prefer strict typing and exhaustive matches
-- Use `iced` widget and canvas APIs idiomatically
-- Handle loading, empty, and error states explicitly
-- Keep drawing code clean — extract helper methods for face, hands, ticks
-- Log errors meaningfully with `eprintln!` (no logging framework yet)
-- Use `f32` for all drawing coordinates and angles
-- Angles measured in radians, clockwise from 12 o'clock position
+- `README.md` for high-level shipped behaviour
+- `docs/user-guide.md` for user-visible controls and workflows
+- `docs/windows-installer.md` for Windows packaging/install behaviour
+- `PLAN.md` for implementation status and remaining work
+- feature-specific docs under `docs/` when a change lands in that feature area
 
 ## Branch Naming
 
-- `feature/<name>` – New features
-- `fix/<name>` – Bug fixes
-- `docs/<name>` – Documentation updates
-- `infrastructure/<name>` – Build/CI/tooling changes
+- `feature/<name>` for new features
+- `fix/<name>` for bug fixes
+- `docs/<name>` for documentation updates
+- `infrastructure/<name>` for build, CI, tooling, or workflow changes
 
-## Shipping Workflow
+## TCTBP Workflow
 
-For SHIP/TCTBP activation, steps, approvals, and versioning rules, see [TCTBP Agent.md](TCTBP%20Agent.md).
+For SHIP, handover, deploy, status, abort, and branch transition rules, use:
+
+- `.github/TCTBP.json` as the authoritative machine-readable profile
+- `.github/TCTBP Agent.md` for workflow guard rails and interpretation
+- `.github/TCTBP Cheatsheet.md` for quick operator guidance
+
+For this repo, treat `cargo build` as the normal verification build and reserve `cargo build --release` for explicit installation, packaging, or deployment work.

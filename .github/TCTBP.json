@@ -1,26 +1,226 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 7,
+  "governance": {
+    "sourceOfTruth": "TCTBP.json",
+    "fallbackDocument": "TCTBP Agent.md",
+    "templateMode": false,
+    "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, tag format, and deployment expectations when updating these files."
+  },
+  "project": {
+    "name": "rust-clock",
+    "description": "Analog clock desklet for Linux with alarms, timers, tray controls, and an early Windows baseline.",
+    "defaultBranch": "main",
+    "versionFiles": ["Cargo.toml"],
+    "locale": "en-AU"
+  },
+  "profile": {
+    "commands": {
+      "format": "cargo fmt -- --check",
+      "test": "cargo test",
+      "lint": "cargo clippy -- -D warnings",
+      "build": "cargo build",
+      "releaseBuild": "cargo build --release"
+    },
+    "qualityGates": {
+      "requireZeroProblems": true,
+      "requireTestsBeforeShip": true,
+      "requireLintBeforeShip": true,
+      "requireBuildBeforeShip": true
+    },
+    "versioning": {
+      "sourceOfTruth": "Cargo.toml:package.version",
+      "tagFormat": "{version}"
+    },
+    "releaseBuildPolicy": "explicit-installation-or-deployment-only"
+  },
   "activation": {
-    "triggers": ["ship", "ship please", "shipping", "tctbp", "prepare release", "handoff", "handoff please"],
+    "triggers": [
+      "ship",
+      "ship please",
+      "shipping",
+      "prepare release",
+      "deploy",
+      "deploy please",
+      "handover",
+      "handover please",
+      "status",
+      "status please",
+      "abort"
+    ],
     "caseInsensitive": true,
     "branchCommand": {
       "enabled": true,
-      "pattern": "^branch\\s+(.+)$"
+      "pattern": "^branch\\s+(.+)$",
+      "stopIfTargetBranchExistsLocal": true,
+      "stopIfTargetBranchExistsRemote": true,
+      "stopIfTargetBranchEqualsDefault": true,
+      "stopIfTargetBranchInvalid": true
     }
   },
-  "projectProfile": {
-    "lint": "cargo clippy -- -D warnings",
-    "format": "cargo fmt -- --check",
-    "test": "cargo test",
-    "build": "cargo build",
-    "releaseBuild": "cargo build --release",
-    "releaseBuildPolicy": "explicit-installation-or-deployment-only",
-    "versionFile": "Cargo.toml",
-    "versionField": "package.version"
+  "ship": {
+    "preferredTriggers": ["ship", "ship please", "shipping", "prepare release"],
+    "requireFetchedOriginInPreflight": true,
+    "stopIfDetachedHead": true,
+    "stopIfBranchMissingUpstream": true,
+    "allowShipFromUnpublishedBranch": false,
+    "stopIfBranchBehindUpstream": true,
+    "stopIfBranchDiverged": true,
+    "stopIfWorkingTreeDirty": true,
+    "purpose": "Create a formal shipped version only from a clean, fetched, synced branch so Cargo version, plain-semver tags, and remote state remain recoverable and unambiguous."
   },
   "workflow": {
-    "order": ["preflight", "test", "problems", "docsImpact", "bump", "commit", "tag", "push"],
+    "shipOrder": ["preflight", "verify", "problems", "docs-impact", "bump", "commit", "changelog", "tag", "push"],
+    "branchOrder": ["preflight", "assess-ship", "verify-or-stop", "inspect-source-branch", "sync-default-branch", "merge-source-into-default-when-needed", "verify-transition", "create-new-branch", "optional-cleanup", "summary"],
+    "handoverOrder": ["preflight", "fetch", "read-handover-metadata", "determine-target-branch", "switch-target-branch", "compare", "stage", "checkpoint-if-needed", "verify-gate", "docs-impact", "commit-if-needed", "ship-if-needed", "reconcile", "push-if-needed", "update-handover-metadata", "verify-sync", "summary"],
+    "statusOrder": ["fetch", "report", "recommend"],
+    "abortOrder": ["inspect", "propose", "execute"],
+    "deployOrder": ["preflight", "sync-prerequisite", "verification-gate", "docs-impact", "runtime-build", "deploy-target", "post-deploy-validation", "summary"],
     "requireApproval": ["push"]
+  },
+  "shipReport": {
+    "enabled": true,
+    "stage": "preflight",
+    "format": "table",
+    "columns": ["Origin", "Local", "Status", "Action(s)"],
+    "recommendedRows": [
+      "branch-and-upstream",
+      "head-commit",
+      "last-shipped-tag",
+      "commits-ahead-behind",
+      "working-tree",
+      "version-source",
+      "docs-impact",
+      "push-readiness"
+    ],
+    "comment": "At the start of SHIP, render a concise release-focused local-versus-origin snapshot table before making changes. Use 'n/a' where a row has no meaningful origin-side value."
+  },
+  "statusReport": {
+    "enabled": true,
+    "stage": "report",
+    "format": "table",
+    "columns": ["Origin", "Local", "Status", "Action(s)"],
+    "recommendedRows": [
+      "branch-and-upstream",
+      "head-commit",
+      "default-branch-state",
+      "last-shipped-tag",
+      "commits-ahead-behind",
+      "working-tree",
+      "version-source",
+      "handover-metadata",
+      "ship-readiness",
+      "handover-readiness"
+    ],
+    "comment": "For status, render the fuller local-versus-origin operator snapshot. Include the current branch, default branch, tags, ahead/behind state, and handover relevance. Use 'n/a' where no meaningful origin-side value exists."
+  },
+  "handoverReport": {
+    "enabled": true,
+    "stage": "summary",
+    "format": "table",
+    "columns": ["Origin", "Local", "Status", "Action(s)"],
+    "recommendedRows": [
+      "target-branch-state",
+      "last-shipped-tag",
+      "metadata-branch-state",
+      "metadata-consistency",
+      "handover-baseline"
+    ],
+    "comment": "At the end of handover, render a concise five-row summary table that confirms the target branch, tag state, metadata branch publication, metadata consistency, and clean synced baseline. Keep it shorter than status and focused on the handover result."
+  },
+  "branch": {
+    "enabled": true,
+    "purpose": "Safely close out the current branch, reconcile the default branch, and create the next work branch without losing code.",
+    "defaultBranch": "main",
+    "stopIfDetachedHead": true,
+    "validateTargetBranchNameBeforeWorkflow": true,
+    "stopIfTargetBranchExistsLocal": true,
+    "stopIfTargetBranchExistsRemote": true,
+    "stopIfTargetBranchEqualsDefault": true,
+    "stopIfTargetBranchInvalid": true,
+    "requiresCleanTreeBeforeSwitch": true,
+    "stopIfDirtyAndShipDeclined": true,
+    "stopIfSourceBranchAheadOfUpstream": true,
+    "stopIfSourceBranchDiverged": true,
+    "stopIfSourceBranchBehindUpstream": true,
+    "stopIfDefaultBranchDiverged": true,
+    "allowFastForwardDefaultBranchWhenClean": true,
+    "mergeSourceIntoDefaultWhenSourceIsNotDefault": true,
+    "skipMergeWhenAlreadyOnDefaultBranch": true,
+    "useNonDestructiveMerge": true,
+    "stopOnMergeConflict": true,
+    "recommendHandoverWhenSourceBranchUnsynced": true,
+    "requireSourceCommitReachableFromDefaultBeforeCleanup": true,
+    "requireNewBranchCreatedBeforeCleanup": true,
+    "allowLocalBranchDeletion": true,
+    "allowRemoteBranchDeletion": true,
+    "requireExplicitApprovalForPush": true,
+    "requireExplicitApprovalForDeletion": true,
+    "neverUseStashResetOrRebase": true,
+    "summaryMustConfirmNoCodeLossGuards": true
+  },
+  "handover": {
+    "preferredTriggers": ["handover", "handover please"],
+    "purpose": "Reconcile the active work branch with origin so work can stop on one machine and resume on another from the latest safely recoverable shared state, preferring validated state and falling back to an explicit checkpoint path when validation cannot complete.",
+    "syncScope": "active-work-branch-plus-handover-metadata-and-relevant-tags",
+    "metadataBranch": "tctbp/handover-state",
+    "metadataFile": ".github/TCTBP_STATE.json",
+    "stopIfDetachedHead": true,
+    "consultMetadataBranchBeforeBranchInference": true,
+    "preferMetadataOverCleanNonDefaultBranch": true,
+    "currentBranchMayOverrideMetadataOnlyWhenDescendantOfMetadataCommit": true,
+    "updateMetadataBranchOnSuccessfulHandover": true,
+    "metadataBranchUpdateStrategy": "secondary-worktree",
+    "excludeBranchesFromCandidateDetection": ["origin/main", "origin/HEAD", "origin/tctbp/handover-state"],
+    "resumesTargetBranchOnAnotherMachine": true,
+    "requiresConfirmationWhenSwitchingBranches": true,
+    "stopOnAmbiguousTargetBranch": true,
+    "createDurableCheckpointBeforeVerificationWhenDirty": true,
+    "checkpointPurpose": "Preserve unpublished dirty work before verification or reconciliation can block handover, using a clearly marked non-release checkpoint commit or other repo-approved durable checkpoint.",
+    "stopIfCheckpointDeclinedForDirtyUnpublishedWork": true,
+    "allowFastForwardWhenBehindAndClean": true,
+    "stopWhenBehindAndDirty": true,
+    "allowAutoMerge": false,
+    "allowAutoRebase": false,
+    "allowHardReset": false,
+    "allowDestructiveCheckout": false,
+    "allowForcePush": false,
+    "mergeDefaultBranchDuringHandover": false,
+    "pushTargetBranchWhenAhead": true,
+    "pushTagsWhenPresent": true
+  },
+  "abort": {
+    "preferredTriggers": ["abort"],
+    "requireExplicitApprovalForAllActions": true,
+    "requireDoubleConfirmationForHistoryRewrite": true,
+    "partialStates": [
+      "version-bumped-without-tag",
+      "tag-created-not-pushed",
+      "branch-pushed-metadata-stale",
+      "metadata-pushed-branch-unpublished",
+      "main-pushed-new-branch-unpublished",
+      "new-branch-pushed-main-unpublished",
+      "old-remote-branch-deleted-before-transition-complete",
+      "merge-in-progress",
+      "changelog-updated-without-version-bump",
+      "local-remote-tag-drift"
+    ],
+    "purpose": "Detect partial workflow states and recover safely without discarding unpublished work or rewriting history implicitly."
+  },
+  "statusRecommendations": {
+    "enabled": true,
+    "suggestions": ["handover", "ship", "abort", "none"],
+    "rules": {
+      "handover": "Suggest when the active work branch is dirty, ahead or behind origin, must be resumed on this machine, the handover metadata branch should be refreshed, local and remote sync of that branch should be verified before stopping or resuming work, or the metadata currently points another machine at the wrong branch.",
+      "ship": "Suggest when there are unshipped commits since the last tag or version and tag drift exists.",
+      "abort": "Suggest when a partial workflow state is detected.",
+      "none": "Suggest when branch state is clean, synced, and no SHIP or handover is needed."
+    }
+  },
+  "docsInfraPolicy": {
+    "skipSteps": ["test", "lint", "build"],
+    "keepSteps": ["preflight", "problems-editor", "docs-impact", "commit", "push"],
+    "filePatterns": ["*.md", "*.txt", "*.rst", "docs/**", ".github/**", "packaging/**", "LICENSE*", "CHANGELOG*", "CONTRIBUTING*"],
+    "comment": "For docs-only or infrastructure-only changes: skip heavy verification commands, keep editor diagnostics and docs impact assessment."
   },
   "documentation": {
     "requireImpactAssessment": true,
@@ -41,7 +241,7 @@
       },
       {
         "changeType": "ui-or-interaction",
-        "review": ["README.md", "docs/user-guide.md"]
+        "review": ["README.md", "docs/user-guide.md", "docs/clock-face-visibility-plan.md"]
       },
       {
         "changeType": "config-or-settings",
@@ -49,23 +249,52 @@
       },
       {
         "changeType": "packaging-or-metadata",
-        "review": ["README.md", "Cargo.toml", "assets/rust-clock.desktop"]
+        "review": ["README.md", "docs/windows-installer.md", "Cargo.toml", "assets/rust-clock.desktop", "installer/windows/build-installer.ps1", "installer/windows/rust-clock.iss"]
       },
       {
         "changeType": "roadmap-or-status",
-        "review": ["PLAN.md"]
+        "review": ["PLAN.md", "docs/clock-face-visibility-plan.md"]
       },
       {
         "changeType": "internal-only",
         "review": []
       }
-    ]
+    ],
+    "comment": "Also review any feature-specific or platform-specific document under docs/ when the change directly affects it."
+  },
+  "deploy": {
+    "preferredTriggers": ["deploy", "deploy please"],
+    "purpose": "Deploy is repo-specific and should be used only for explicit installation or packaging targets such as the local Linux runtime binary or the Windows installer output.",
+    "stopIfDetachedHead": true,
+    "requireCleanTree": true,
+    "requireSyncedBranch": true,
+    "requireShipFirst": false,
+    "requireRollbackPlanForDestructiveDeploy": true,
+    "buildCommand": "cargo build --release",
+    "migrationCommand": null,
+    "targets": {
+      "linux-local-runtime": {
+        "description": "Install or upgrade the local Linux runtime binary under /usr/local/bin/rust-clock.",
+        "installCommand": "sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock",
+        "postDeployValidation": [
+          "sha256sum target/release/rust-clock /usr/local/bin/rust-clock"
+        ]
+      },
+      "windows-installer": {
+        "description": "Build the Windows installer package under dist/windows using Inno Setup.",
+        "installCommand": "pwsh -File .\\installer\\windows\\build-installer.ps1",
+        "postDeployValidation": [
+          "Confirm that dist/windows contains the expected versioned installer output"
+        ]
+      }
+    }
   },
   "versioning": {
     "scheme": "semver",
     "patchEveryShip": true,
     "skipForChangeTypes": ["docs-only", "infrastructure-only"],
     "minorOnFirstShipOfBranch": true,
+    "minorBranchPrefixes": ["feature/"],
     "majorExplicitOnly": true
   },
   "tagging": {
