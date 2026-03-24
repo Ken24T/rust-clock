@@ -216,6 +216,14 @@ enum Message {
     RemoveAlarm(Uuid),
     /// Edit an existing alarm — populate the form.
     EditAlarm(Uuid),
+    /// Pause a running reminder by ID.
+    PauseAlarm(Uuid),
+    /// Pause all eligible running reminders.
+    PauseAllRunning,
+    /// Resume a paused reminder by ID.
+    ResumeAlarm(Uuid),
+    /// Resume all paused reminders.
+    ResumeAllPaused,
     /// Clear all fired alarms.
     ClearFiredAlarms,
     /// Form: label text changed.
@@ -861,6 +869,38 @@ impl ClockApp {
                     self.alarm_form.populate_from(alarm);
                     return self.open_control_window(ControlWindowContent::AlarmPanel);
                 }
+                Task::none()
+            }
+            Message::PauseAlarm(id) => {
+                if self.alarm_manager.pause(id) {
+                    self.sync_clock_face_active_items();
+                    return self.close_hover_window();
+                }
+
+                Task::none()
+            }
+            Message::PauseAllRunning => {
+                if self.alarm_manager.pause_all_running() > 0 {
+                    self.sync_clock_face_active_items();
+                    return self.close_hover_window();
+                }
+
+                Task::none()
+            }
+            Message::ResumeAlarm(id) => {
+                if self.alarm_manager.resume(id) {
+                    self.sync_clock_face_active_items();
+                    return self.close_hover_window();
+                }
+
+                Task::none()
+            }
+            Message::ResumeAllPaused => {
+                if self.alarm_manager.resume_all_paused() > 0 {
+                    self.sync_clock_face_active_items();
+                    return self.close_hover_window();
+                }
+
                 Task::none()
             }
             Message::AlarmFormLabelChanged(value) => {

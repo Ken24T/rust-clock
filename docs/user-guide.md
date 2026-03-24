@@ -177,6 +177,8 @@ If you leave the date empty, Rust Clock uses today.
 
 ### Edit Or Remove A Reminder
 
+- Select `Pause` to temporarily stop a running reminder without deleting it
+- Select `Resume` to continue a paused reminder
 - Select `✎` to load an existing timer or alarm back into the form
 - Select `✕` to remove a timer or alarm
 - Select `Clear Done` to clear reminders that have already fired
@@ -188,6 +190,14 @@ The list in the panel shows:
 - whether it is a timer or an alarm
 - the recurrence pattern when a reminder repeats
 - a short preview of the message if one was added
+
+Countdown timers show how much time was left when paused and resume from that point. Fixed-time alarms show that they were paused before their scheduled time, while recurring alarms show that their schedule is paused until resumed.
+
+Running and paused reminders are shown in separate sections inside the panel so paused items stay manageable without looking like they are still live on the clock face.
+
+If you have several paused reminders, use `Resume All` to move them all back into the running list at once.
+
+If several reminders are still running, use `Pause All` to pause every eligible reminder together. One-shot reminders that are already done no longer offer a pause action.
 
 ### When A Reminder Goes Off
 

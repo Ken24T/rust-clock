@@ -255,6 +255,16 @@ pub enum AlertAction {
     Both,
 }
 
+/// Temporary pause state for a reminder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum PausedState {
+    /// Countdown-style reminders store the remaining time when paused.
+    Countdown { remaining_secs: i64 },
+    /// Clock-time reminders simply suppress firing until resumed.
+    Suppressed,
+}
+
 // -- Recurrence ------------------------------------------------------------
 
 /// Supported day-of-week values for recurring schedules.
@@ -577,6 +587,9 @@ pub struct Alarm {
     /// Optional message shown in the notification when the alarm fires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Whether the reminder is temporarily paused by the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paused: Option<PausedState>,
     /// Whether this alarm is active.
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -598,6 +611,7 @@ impl Alarm {
             kind,
             alert,
             message: None,
+            paused: None,
             enabled: true,
             fired: false,
         }
@@ -610,11 +624,11 @@ impl Alarm {
     }
 
     pub fn should_fire_at(&self, now: DateTime<Local>) -> bool {
-        if !self.enabled {
+        if !self.enabled || self.is_paused() {
             return false;
         }
 
-        if !self.kind.is_recurring() && self.fired {
+        if self.is_completed() {
             return false;
         }
 
@@ -625,12 +639,147 @@ impl Alarm {
         self.kind.advance_after(now)
     }
 
+    pub fn is_paused(&self) -> bool {
+        self.paused.is_some()
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.fired && !self.kind.is_recurring()
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.enabled && !self.is_paused() && !self.is_completed()
+    }
+
+    pub fn can_pause(&self, now: DateTime<Local>) -> bool {
+        if !self.enabled || self.is_paused() || self.is_completed() {
+            return false;
+        }
+
+        match &self.kind {
+            AlarmKind::Timer { target, .. } => *target > now,
+            AlarmKind::RepeatingInterval { .. } => true,
+            AlarmKind::AtTime { target } => *target > now,
+            AlarmKind::RepeatingSchedule { .. } => true,
+        }
+    }
+
+    pub fn can_resume(&self) -> bool {
+        self.is_paused()
+    }
+
+    pub fn pause(&mut self, now: DateTime<Local>) -> bool {
+        if !self.can_pause(now) {
+            return false;
+        }
+
+        let paused = match &self.kind {
+            AlarmKind::Timer { target, .. } => {
+                let remaining = (*target - now).num_seconds();
+                if remaining <= 0 {
+                    return false;
+                }
+
+                PausedState::Countdown {
+                    remaining_secs: remaining,
+                }
+            }
+            AlarmKind::RepeatingInterval { next_target, .. } => {
+                let remaining = (*next_target - now).num_seconds();
+                let remaining = remaining.max(1);
+
+                PausedState::Countdown {
+                    remaining_secs: remaining,
+                }
+            }
+            AlarmKind::AtTime { target } => {
+                if *target <= now {
+                    return false;
+                }
+
+                PausedState::Suppressed
+            }
+            AlarmKind::RepeatingSchedule { .. } => PausedState::Suppressed,
+        };
+
+        self.paused = Some(paused);
+        true
+    }
+
+    pub fn resume_from_pause(&mut self, resumed_at: DateTime<Local>) -> bool {
+        let Some(paused) = self.paused.take() else {
+            return false;
+        };
+
+        match (&mut self.kind, paused) {
+            (AlarmKind::Timer { target, .. }, PausedState::Countdown { remaining_secs }) => {
+                if self.fired {
+                    return false;
+                }
+
+                if remaining_secs <= 0 {
+                    self.fired = true;
+                } else {
+                    *target = resumed_at + Duration::seconds(remaining_secs);
+                }
+            }
+            (
+                AlarmKind::RepeatingInterval { next_target, .. },
+                PausedState::Countdown { remaining_secs },
+            ) => {
+                let next_in = remaining_secs.max(1);
+                *next_target = resumed_at + Duration::seconds(next_in);
+            }
+            (AlarmKind::AtTime { target }, PausedState::Suppressed) => {
+                if self.fired {
+                    return false;
+                }
+
+                if *target <= resumed_at {
+                    self.fired = true;
+                }
+            }
+            (
+                AlarmKind::RepeatingSchedule {
+                    schedule,
+                    next_target,
+                },
+                PausedState::Suppressed,
+            ) => {
+                if *next_target <= resumed_at {
+                    if let Some(next) = schedule.next_after(resumed_at) {
+                        *next_target = next;
+                    } else {
+                        self.fired = true;
+                    }
+                }
+            }
+            (AlarmKind::AtTime { target }, PausedState::Countdown { remaining_secs }) => {
+                *target = resumed_at + Duration::seconds(remaining_secs.max(1));
+            }
+            (
+                AlarmKind::RepeatingSchedule { next_target, .. },
+                PausedState::Countdown { remaining_secs },
+            ) => {
+                *next_target = resumed_at + Duration::seconds(remaining_secs.max(1));
+            }
+            (AlarmKind::Timer { target, .. }, PausedState::Suppressed) => {
+                if *target <= resumed_at {
+                    self.fired = true;
+                }
+            }
+            (AlarmKind::RepeatingInterval { .. }, PausedState::Suppressed) => {}
+        }
+
+        true
+    }
+
     pub fn resume_after_restart(
         &mut self,
         paused_at: DateTime<Local>,
         resumed_at: DateTime<Local>,
     ) -> bool {
-        if resumed_at <= paused_at || !self.enabled {
+        if resumed_at <= paused_at || !self.enabled || self.is_paused() {
             return false;
         }
 
@@ -693,9 +842,13 @@ impl Alarm {
 
     /// Human-readable remaining time (e.g. "2m 30s", "in 1h 5m", or "passed").
     pub fn remaining_display(&self) -> String {
+        if let Some(paused) = &self.paused {
+            return paused.status_text_for(self);
+        }
+
         let now = Local::now();
         let target = self.kind.target();
-        if self.fired && !self.kind.is_recurring() {
+        if self.is_completed() {
             return "done".to_string();
         }
         if now >= target {
@@ -722,7 +875,7 @@ impl Alarm {
 
     /// Project this alarm into a compact face-visible summary when active.
     pub fn face_active_item(&self) -> Option<FaceActiveItem> {
-        if !self.enabled || (self.fired && !self.kind.is_recurring()) {
+        if !self.is_live() {
             return None;
         }
 
@@ -752,6 +905,40 @@ impl Alarm {
             target: self.kind.target(),
             remaining_text: self.remaining_display(),
         })
+    }
+}
+
+impl PausedState {
+    pub fn status_text_for(&self, alarm: &Alarm) -> String {
+        match self {
+            Self::Countdown { remaining_secs } => {
+                format!(
+                    "Paused with {} left",
+                    format_remaining_secs(*remaining_secs)
+                )
+            }
+            Self::Suppressed => match &alarm.kind {
+                AlarmKind::AtTime { target } => {
+                    format!("Paused before {}", target.format("%H:%M"))
+                }
+                AlarmKind::RepeatingSchedule { .. } => "Paused schedule".to_string(),
+                AlarmKind::Timer { .. } | AlarmKind::RepeatingInterval { .. } => {
+                    "Paused".to_string()
+                }
+            },
+        }
+    }
+}
+
+fn format_remaining_secs(remaining_secs: i64) -> String {
+    let diff = remaining_secs.max(0);
+
+    if diff >= 3600 {
+        format!("{}h {}m", diff / 3600, (diff % 3600) / 60)
+    } else if diff >= 60 {
+        format!("{}m {}s", diff / 60, diff % 60)
+    } else {
+        format!("{diff}s")
     }
 }
 
@@ -823,6 +1010,23 @@ mod tests {
     }
 
     #[test]
+    fn expired_one_shot_timer_cannot_be_paused() {
+        let now = Local::now();
+        let mut alarm = Alarm::new(
+            "Done",
+            AlarmKind::Timer {
+                duration_secs: 60,
+                target: now - Duration::seconds(5),
+            },
+            AlertAction::Both,
+        );
+        alarm.fired = true;
+
+        assert!(!alarm.can_pause(now));
+        assert!(!alarm.pause(now));
+    }
+
+    #[test]
     fn repeating_interval_advances_to_future_after_fire() {
         let mut alarm = Alarm::new(
             "Hourly",
@@ -838,6 +1042,84 @@ mod tests {
         assert!(alarm.advance_after_fire(now));
         assert!(alarm.kind.target() > now);
         assert!(!alarm.fired);
+    }
+
+    #[test]
+    fn one_shot_timer_pause_and_resume_preserves_remaining_time() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::minutes(12);
+        let mut alarm = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: paused_at + Duration::minutes(8),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.pause(paused_at));
+        assert!(alarm.is_paused());
+        assert_eq!(alarm.remaining_display(), "Paused with 8m 0s left");
+        assert!(alarm.resume_from_pause(resumed_at));
+        assert!(!alarm.is_paused());
+
+        let remaining = (alarm.kind.target() - resumed_at).num_seconds();
+        assert!(remaining >= 479 && remaining <= 481);
+    }
+
+    #[test]
+    fn repeating_interval_pause_and_resume_preserves_next_fire_offset() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::minutes(30);
+        let mut alarm = Alarm::new(
+            "Stretch",
+            AlarmKind::RepeatingInterval {
+                interval_secs: 900,
+                next_target: paused_at + Duration::minutes(4),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.pause(paused_at));
+        assert!(alarm.resume_from_pause(resumed_at));
+
+        let remaining = (alarm.kind.target() - resumed_at).num_seconds();
+        assert!(remaining >= 239 && remaining <= 241);
+    }
+
+    #[test]
+    fn one_shot_alarm_resuming_after_target_marks_it_done() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::hours(2);
+        let mut alarm = Alarm::new(
+            "Meeting",
+            AlarmKind::AtTime {
+                target: paused_at + Duration::minutes(20),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.pause(paused_at));
+        assert!(alarm.resume_from_pause(resumed_at));
+        assert!(alarm.fired);
+        assert!(!alarm.should_fire_at(resumed_at));
+    }
+
+    #[test]
+    fn paused_reminder_is_hidden_from_face_projection() {
+        let now = Local::now();
+        let mut alarm = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: now + Duration::minutes(10),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.face_active_item().is_some());
+        assert!(alarm.pause(now));
+        assert!(alarm.face_active_item().is_none());
     }
 
     #[test]

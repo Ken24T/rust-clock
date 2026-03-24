@@ -155,9 +155,24 @@ impl AlarmManager {
 
     /// Number of active (enabled, not completed) alarms.
     pub fn active_count(&self) -> usize {
+        self.alarms.iter().filter(|alarm| alarm.is_live()).count()
+    }
+
+    /// Number of paused reminders.
+    pub fn paused_count(&self) -> usize {
         self.alarms
             .iter()
-            .filter(|alarm| alarm.enabled && (!alarm.fired || alarm.kind.is_recurring()))
+            .filter(|alarm| alarm.enabled && alarm.is_paused())
+            .count()
+    }
+
+    /// Number of reminders that are currently eligible to be paused.
+    pub fn pausable_count(&self) -> usize {
+        let now = Local::now();
+
+        self.alarms
+            .iter()
+            .filter(|alarm| alarm.can_pause(now))
             .count()
     }
 
@@ -209,6 +224,72 @@ impl AlarmManager {
             *existing = updated;
             self.save();
         }
+    }
+
+    /// Pause an existing reminder by ID.
+    pub fn pause(&mut self, id: Uuid) -> bool {
+        let changed = self
+            .alarms
+            .iter_mut()
+            .find(|alarm| alarm.id == id)
+            .is_some_and(|alarm| alarm.pause(Local::now()));
+
+        if changed {
+            self.save();
+        }
+
+        changed
+    }
+
+    /// Pause all currently running reminders and return the number paused.
+    pub fn pause_all_running(&mut self) -> usize {
+        let now = Local::now();
+        let mut paused = 0;
+
+        for alarm in &mut self.alarms {
+            if alarm.pause(now) {
+                paused += 1;
+            }
+        }
+
+        if paused > 0 {
+            self.save();
+        }
+
+        paused
+    }
+
+    /// Resume a previously paused reminder by ID.
+    pub fn resume(&mut self, id: Uuid) -> bool {
+        let changed = self
+            .alarms
+            .iter_mut()
+            .find(|alarm| alarm.id == id)
+            .is_some_and(|alarm| alarm.resume_from_pause(Local::now()));
+
+        if changed {
+            self.save();
+        }
+
+        changed
+    }
+
+    /// Resume all paused reminders and return the number resumed.
+    pub fn resume_all_paused(&mut self) -> usize {
+        let now = Local::now();
+        let mut resumed = 0;
+
+        for alarm in &mut self.alarms {
+            if alarm.resume_from_pause(now) {
+                resumed += 1;
+            }
+        }
+
+        if resumed > 0 {
+            self.save();
+        }
+
+        resumed
     }
 
     /// Remove all one-shot alarms that have already fired.
@@ -350,5 +431,82 @@ mod tests {
         let labels: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
 
         assert_eq!(labels, vec!["Hourly", "Sooner", "Later"]);
+    }
+
+    #[test]
+    fn paused_alarm_is_excluded_from_active_count_and_face_items() {
+        let mut mgr = AlarmManager::default();
+        let mut alarm = Alarm::new("Tea", AlarmKind::from_now(600), AlertAction::Both);
+        assert!(alarm.pause(Local::now()));
+        mgr.alarms.push(alarm);
+
+        assert_eq!(mgr.active_count(), 0);
+        assert_eq!(mgr.paused_count(), 1);
+        assert!(mgr.face_active_items().is_empty());
+    }
+
+    #[test]
+    fn resume_all_paused_resumes_every_paused_reminder() {
+        let now = Local::now();
+        let mut mgr = AlarmManager::default();
+
+        let mut timer = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: now + Duration::minutes(8),
+            },
+            AlertAction::Both,
+        );
+        let mut alarm = Alarm::new(
+            "Meeting",
+            AlarmKind::AtTime {
+                target: now + Duration::minutes(20),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(timer.pause(now));
+        assert!(alarm.pause(now));
+        mgr.alarms.push(timer);
+        mgr.alarms.push(alarm);
+
+        assert_eq!(mgr.paused_count(), 2);
+        assert_eq!(mgr.resume_all_paused(), 2);
+        assert_eq!(mgr.paused_count(), 0);
+        assert_eq!(mgr.active_count(), 2);
+    }
+
+    #[test]
+    fn pause_all_running_skips_done_one_shot_reminders() {
+        let now = Local::now();
+        let mut mgr = AlarmManager::default();
+
+        let running = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: now + Duration::minutes(8),
+            },
+            AlertAction::Both,
+        );
+        let mut done = Alarm::new(
+            "Done",
+            AlarmKind::Timer {
+                duration_secs: 60,
+                target: now - Duration::seconds(5),
+            },
+            AlertAction::Both,
+        );
+        done.fired = true;
+
+        mgr.alarms.push(running);
+        mgr.alarms.push(done);
+
+        assert_eq!(mgr.pausable_count(), 1);
+        assert_eq!(mgr.pause_all_running(), 1);
+        assert_eq!(mgr.paused_count(), 1);
+        assert!(mgr.alarms[1].fired);
+        assert!(!mgr.alarms[1].is_paused());
     }
 }

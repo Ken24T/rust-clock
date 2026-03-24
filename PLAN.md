@@ -153,6 +153,7 @@
 - [ ] User-selectable alarm sound files through the UI
 - [ ] Configurable chime hours
 - [ ] Visual indicator on the face for pending alarms
+- [x] Pause and resume controls for running reminders
 - [ ] Snooze
 - [x] Recurring alarms and interval timers
 - [x] Pause reminders while the app is not running and resume eligible reminders on restart

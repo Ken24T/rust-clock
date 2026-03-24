@@ -83,22 +83,120 @@ pub fn alarm_panel<'a>(
     ]
     .spacing(3);
 
-    // -- Active alarms list --
-    let active: Vec<&Alarm> = manager.all().iter().filter(|a| a.enabled).collect();
+    // -- Managed reminders list --
+    let managed: Vec<&Alarm> = manager.all().iter().filter(|alarm| alarm.enabled).collect();
+    let running: Vec<&Alarm> = managed
+        .iter()
+        .copied()
+        .filter(|alarm| alarm.is_live())
+        .collect();
+    let paused: Vec<&Alarm> = managed
+        .iter()
+        .copied()
+        .filter(|alarm| alarm.is_paused())
+        .collect();
+    let done: Vec<&Alarm> = managed
+        .iter()
+        .copied()
+        .filter(|alarm| alarm.is_completed())
+        .collect();
 
-    let alarm_list = if active.is_empty() {
+    let alarm_list = if managed.is_empty() {
         column![text("No active alarms or timers")
             .size(11)
             .color(chrome.muted_text)]
     } else {
-        let items: Vec<Element<'_, Message>> = active
-            .iter()
-            .map(|alarm| alarm_row(alarm, chrome))
-            .collect();
-        column(items).spacing(3)
+        let mut sections: Vec<Element<'_, Message>> = Vec::new();
+
+        if !running.is_empty() {
+            sections.push(section_label("Running", running.len(), chrome));
+            let items: Vec<Element<'_, Message>> = running
+                .iter()
+                .map(|alarm| alarm_row(alarm, chrome))
+                .collect();
+            sections.push(column(items).spacing(3).into());
+        }
+
+        if !paused.is_empty() {
+            if !sections.is_empty() {
+                sections.push(separator_widget(chrome));
+            }
+
+            sections.push(section_label("Paused", paused.len(), chrome));
+            let items: Vec<Element<'_, Message>> = paused
+                .iter()
+                .map(|alarm| alarm_row(alarm, chrome))
+                .collect();
+            sections.push(column(items).spacing(3).into());
+        }
+
+        if !done.is_empty() {
+            if !sections.is_empty() {
+                sections.push(separator_widget(chrome));
+            }
+
+            sections.push(section_label("Done", done.len(), chrome));
+            let items: Vec<Element<'_, Message>> =
+                done.iter().map(|alarm| alarm_row(alarm, chrome)).collect();
+            sections.push(column(items).spacing(3).into());
+        }
+
+        column(sections).spacing(5)
     };
 
-    let list_label = text("Active").size(12).color(chrome.muted_text);
+    let summary_row: Vec<Element<'_, Message>> = vec![
+        text("Reminders").size(12).color(chrome.muted_text).into(),
+        reminder_count_chip("Running", running.len(), false, chrome),
+        reminder_count_chip("Paused", paused.len(), true, chrome),
+        reminder_count_chip("Done", done.len(), true, chrome),
+    ];
+
+    let mut action_row: Vec<Element<'_, Message>> = Vec::new();
+
+    if manager.paused_count() > 0 {
+        action_row.push(
+            button(
+                text("Resume All")
+                    .size(9)
+                    .align_x(alignment::Horizontal::Center),
+            )
+            .on_press(Message::ResumeAllPaused)
+            .padding(Padding::from([1, 6]))
+            .style(move |theme, status| active_mode_style(theme, status, chrome))
+            .into(),
+        );
+    }
+
+    if manager.pausable_count() > 0 {
+        action_row.push(
+            button(
+                text("Pause All")
+                    .size(9)
+                    .align_x(alignment::Horizontal::Center),
+            )
+            .on_press(Message::PauseAllRunning)
+            .padding(Padding::from([1, 6]))
+            .style(move |theme, status| preset_button_style(theme, status, chrome))
+            .into(),
+        );
+    }
+
+    let summary_label = row(summary_row)
+        .spacing(5)
+        .align_y(alignment::Vertical::Center);
+
+    let list_label: Element<'_, Message> = if action_row.is_empty() {
+        summary_label.into()
+    } else {
+        column![
+            summary_label,
+            row(action_row)
+                .spacing(5)
+                .align_y(alignment::Vertical::Center)
+        ]
+        .spacing(4)
+        .into()
+    };
 
     // -- Clear / close buttons --
     let mut bottom_row: Vec<Element<'_, Message>> = Vec::new();
@@ -132,11 +230,11 @@ pub fn alarm_panel<'a>(
     let mut body_items: Vec<Element<'_, Message>> = vec![presets.into(), separator_widget(chrome)];
     body_items.extend(build_form_elements(form, chrome));
     body_items.push(separator_widget(chrome));
-    body_items.push(list_label.into());
+    body_items.push(list_label);
     body_items.push(alarm_list.into());
 
     let body_content = column(body_items).spacing(6);
-    let body: Element<'_, Message> = if active.is_empty() {
+    let body: Element<'_, Message> = if managed.is_empty() {
         body_content.into()
     } else {
         scrollable(body_content)
@@ -386,9 +484,11 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
 
 // -- Alarm row -------------------------------------------------------------
 
-/// A single alarm row: label, remaining time, kind badge, edit and delete buttons.
+/// A single alarm row: label, status, kind badge, and reminder actions.
 fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message> {
-    let status_colour = if alarm.fired {
+    let status_colour = if alarm.is_paused() {
+        chrome.muted_text
+    } else if alarm.fired {
         chrome.success
     } else {
         chrome.text
@@ -397,7 +497,11 @@ fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message>
     let label = text(&alarm.label).size(11).color(status_colour);
     let remaining = text(alarm.remaining_display())
         .size(10)
-        .color(chrome.accent);
+        .color(if alarm.is_paused() {
+            chrome.muted_text
+        } else {
+            chrome.accent
+        });
     let kind = text(alarm.kind_label()).size(9).color(chrome.muted_text);
 
     // Show message excerpt if present.
@@ -417,6 +521,29 @@ fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message>
         }
     }
 
+    let toggle_btn: Element<'_, Message> = if alarm.can_resume() {
+        button(
+            text("Resume")
+                .size(9)
+                .align_x(alignment::Horizontal::Center),
+        )
+        .on_press(Message::ResumeAlarm(alarm.id))
+        .padding(Padding::from([1, 4]))
+        .style(move |theme, status| active_mode_style(theme, status, chrome))
+        .into()
+    } else if alarm.can_pause(chrono::Local::now()) {
+        button(text("Pause").size(9).align_x(alignment::Horizontal::Center))
+            .on_press(Message::PauseAlarm(alarm.id))
+            .padding(Padding::from([1, 4]))
+            .style(move |theme, status| preset_button_style(theme, status, chrome))
+            .into()
+    } else {
+        button(text("Done").size(9).align_x(alignment::Horizontal::Center))
+            .padding(Padding::from([1, 4]))
+            .style(move |theme, status| close_button_style(theme, status, chrome))
+            .into()
+    };
+
     let edit_btn = button(text("✎").size(10).align_x(alignment::Horizontal::Center))
         .on_press(Message::EditAlarm(alarm.id))
         .padding(Padding::from([1, 4]))
@@ -428,12 +555,60 @@ fn alarm_row<'a>(alarm: &'a Alarm, chrome: WindowChrome) -> Element<'a, Message>
         .style(move |theme, status| delete_button_style(theme, status, chrome));
 
     let info_col = column(info_items).spacing(1);
-    let btn_col = row![edit_btn, delete_btn].spacing(2);
+    let btn_col = row![toggle_btn, edit_btn, delete_btn].spacing(2);
 
     container(row![info_col, btn_col].spacing(6))
         .padding(Padding::from([3, 6]))
-        .style(move |theme| alarm_row_style(theme, chrome))
+        .style(move |theme| alarm_row_style(theme, chrome, alarm.is_paused()))
         .width(Fill)
+        .into()
+}
+
+fn section_label<'a>(title: &'a str, count: usize, chrome: WindowChrome) -> Element<'a, Message> {
+    row![
+        text(title).size(10).color(chrome.muted_text),
+        text(format!("{count}"))
+            .size(10)
+            .color(chrome.accent_soft_text)
+    ]
+    .spacing(6)
+    .align_y(alignment::Vertical::Center)
+    .into()
+}
+
+fn reminder_count_chip<'a>(
+    label: &'a str,
+    count: usize,
+    paused: bool,
+    chrome: WindowChrome,
+) -> Element<'a, Message> {
+    let background = if paused {
+        chrome.panel_background
+    } else {
+        chrome.accent_soft
+    };
+    let text_colour = if paused {
+        chrome.muted_text
+    } else {
+        chrome.accent_soft_text
+    };
+    let border = if paused {
+        chrome.panel_border
+    } else {
+        chrome.accent
+    };
+
+    container(text(format!("{label}: {count}")).size(9).color(text_colour))
+        .padding(Padding::from([1, 6]))
+        .style(move |_theme| container::Style {
+            background: Some(iced::Background::Color(background)),
+            border: iced::Border {
+                color: border,
+                width: 1.0,
+                radius: 999.0.into(),
+            },
+            ..container::Style::default()
+        })
         .into()
 }
 
@@ -557,11 +732,22 @@ fn panel_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
     }
 }
 
-fn alarm_row_style(_theme: &iced::Theme, chrome: WindowChrome) -> container::Style {
+fn alarm_row_style(_theme: &iced::Theme, chrome: WindowChrome, paused: bool) -> container::Style {
+    let background = if paused {
+        chrome.panel_background
+    } else {
+        chrome.surface
+    };
+    let border = if paused {
+        chrome.panel_border
+    } else {
+        chrome.separator
+    };
+
     container::Style {
-        background: Some(iced::Background::Color(chrome.surface)),
+        background: Some(iced::Background::Color(background)),
         border: iced::Border {
-            color: chrome.separator,
+            color: border,
             width: 1.0,
             radius: 4.0.into(),
         },

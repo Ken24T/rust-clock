@@ -115,6 +115,7 @@ The alarms panel supports:
 - fixed alarms for a specific local time and optional date
 - recurring alarms for daily, weekdays-only, weekly, and custom weekday schedules
 - labels and optional notification messages
+- pause and resume controls for running reminders directly in the active list
 - editing existing alarms and timers
 - deleting entries
 - clearing fired items
@@ -124,6 +125,14 @@ When an alarm fires, the current app behaviour is to play the built-in generated
 When you quit Rust Clock, active timers and alarms pause instead of continuing in the background. On the next launch, countdown timers and repeating interval timers resume from the remaining time they had when you quit, while one-shot alarms that were missed during shutdown are treated as missed rather than firing late.
 
 When reminders are active, the clock face keeps a compact summary on the dial and opens a separate reminder detail window on hover instead of layering long callouts over the clock face itself.
+
+Paused reminders stay available in the alarms panel for quick resumption, but they are removed from the live clock-face reminder summary until resumed.
+
+The alarms panel now separates currently running reminders from paused ones and shows compact running/paused counts so it is easier to resume the right item without mixing it into the live list.
+
+If multiple reminders are paused, the panel also offers a `Resume All` action so you can restore the live list in one step.
+
+Likewise, the panel offers `Pause All` for currently running reminders, while reminders that are already done no longer show a misleading pause action.
 
 The detached reminder detail surface now follows low-contrast face themes more closely, including the transparent and minimal built-in looks.
 
