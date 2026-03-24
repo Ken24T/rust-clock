@@ -918,25 +918,17 @@ impl ClockApp {
             }
             Message::Quit => {
                 self.save_config();
+                self.alarm_manager.save_for_shutdown();
                 if let Some(tray_handle) = self.tray_handle.take() {
                     tray_handle.shutdown();
                 }
-                let mut tasks = Vec::new();
-
-                if let Some(id) = self.control_window.take() {
-                    tasks.push(window::close(id));
-                }
-
-                if let Some(id) = self.hover_window.take() {
-                    tasks.push(window::close(id));
-                }
-
+                self.control_window = None;
+                self.hover_window = None;
                 self.control_window_content = None;
                 self.hover_target = None;
                 self.hover_window_content = None;
-                tasks.push(window::oldest().and_then(window::close));
 
-                Task::batch(tasks)
+                iced::exit()
             }
         }
     }

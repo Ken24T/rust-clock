@@ -6,3 +6,5 @@
 .idea/
 .vscode/
 *.log
+.github/.tctbp-backups/
+.github/prompts/Update Existing Repository From TCTBP.prompt.md

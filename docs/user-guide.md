@@ -122,6 +122,8 @@ Intermediate clock sizes switch to a reduced single-line summary so the face sta
 
 Hovering a visible reminder summary opens a separate reminder detail window beside the clock instead of drawing the full callout over the dial. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders in that same detached window, and the minimal count badge also uses the detached reminder window for its listed detail view.
 
+That detached reminder surface is now blended to match the active clock-face theme more closely, so the transparent and minimal themes keep a lighter-touch overlay instead of switching to a strong opaque panel.
+
 ### Quick Timers
 
 If you want something fast, you can start one of these straight away:
@@ -195,6 +197,8 @@ When a timer or alarm finishes, Rust Clock currently does two things:
 - it shows a desktop notification
 
 At the moment, the reminder window does not offer separate sound-only or notification-only choices.
+
+When you quit Rust Clock with `Ctrl+Q` or the tray `Quit` action, the app stops running rather than leaving reminders active in the background. Existing countdown timers and repeating interval timers resume from their remaining time when you start the app again. One-shot alarms that would have fired while the app was closed are marked as missed and do not fire late after restart.
 
 ## Tray Icon
 

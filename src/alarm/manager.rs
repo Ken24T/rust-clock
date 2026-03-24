@@ -12,11 +12,43 @@ use uuid::Uuid;
 
 use super::{Alarm, AlarmKind, AlertAction, FaceActiveItem};
 
+mod optional_ts_seconds_local {
+    use chrono::{DateTime, Local, TimeZone, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<DateTime<Local>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(dt) => serializer.serialize_some(&dt.timestamp()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<DateTime<Local>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let ts = Option::<i64>::deserialize(deserializer)?;
+
+        ts.map(|value| {
+            Utc.timestamp_opt(value, 0)
+                .single()
+                .map(|utc| utc.with_timezone(&Local))
+                .ok_or_else(|| serde::de::Error::custom("invalid timestamp"))
+        })
+        .transpose()
+    }
+}
+
 /// Wrapper for TOML serialisation of alarm list.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AlarmFile {
     #[serde(default)]
     alarm: Vec<Alarm>,
+    #[serde(default, with = "optional_ts_seconds_local")]
+    suspended_at: Option<chrono::DateTime<Local>>,
 }
 
 /// Manages a collection of alarms — creation, deletion, persistence, and
@@ -44,7 +76,16 @@ impl AlarmManager {
         }
         match fs::read_to_string(&path) {
             Ok(contents) => match toml::from_str::<AlarmFile>(&contents) {
-                Ok(file) => Self { alarms: file.alarm },
+                Ok(file) => {
+                    let mut manager = Self { alarms: file.alarm };
+
+                    if let Some(suspended_at) = file.suspended_at {
+                        manager.resume_after_restart(suspended_at, Local::now());
+                        manager.save();
+                    }
+
+                    manager
+                }
                 Err(e) => {
                     eprintln!("Failed to parse alarms at {}: {e}", path.display());
                     Self::backup_corrupted_file(&path);
@@ -73,6 +114,14 @@ impl AlarmManager {
 
     /// Save the current alarm list to disk.
     pub fn save(&self) {
+        self.save_with_suspended_at(None);
+    }
+
+    pub fn save_for_shutdown(&self) {
+        self.save_with_suspended_at(Some(Local::now()));
+    }
+
+    fn save_with_suspended_at(&self, suspended_at: Option<chrono::DateTime<Local>>) {
         let Some(path) = Self::file_path() else {
             eprintln!("Could not determine config directory for alarms");
             return;
@@ -85,6 +134,7 @@ impl AlarmManager {
         }
         let file = AlarmFile {
             alarm: self.alarms.clone(),
+            suspended_at,
         };
         match toml::to_string_pretty(&file) {
             Ok(contents) => {
@@ -166,6 +216,22 @@ impl AlarmManager {
         self.alarms
             .retain(|alarm| alarm.kind.is_recurring() || !alarm.fired);
         self.save();
+    }
+
+    fn resume_after_restart(
+        &mut self,
+        suspended_at: chrono::DateTime<Local>,
+        resumed_at: chrono::DateTime<Local>,
+    ) {
+        let mut changed = false;
+
+        for alarm in &mut self.alarms {
+            changed |= alarm.resume_after_restart(suspended_at, resumed_at);
+        }
+
+        if changed {
+            self.save();
+        }
     }
 
     // -- Tick check --------------------------------------------------------

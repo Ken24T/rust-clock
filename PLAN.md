@@ -155,6 +155,7 @@
 - [ ] Visual indicator on the face for pending alarms
 - [ ] Snooze
 - [x] Recurring alarms and interval timers
+- [x] Pause reminders while the app is not running and resume eligible reminders on restart
 
 ### Face-level visibility
 

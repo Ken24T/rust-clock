@@ -121,7 +121,11 @@ The alarms panel supports:
 
 When an alarm fires, the current app behaviour is to play the built-in generated beep pattern and send a desktop notification.
 
+When you quit Rust Clock, active timers and alarms pause instead of continuing in the background. On the next launch, countdown timers and repeating interval timers resume from the remaining time they had when you quit, while one-shot alarms that were missed during shutdown are treated as missed rather than firing late.
+
 When reminders are active, the clock face keeps a compact summary on the dial and opens a separate reminder detail window on hover instead of layering long callouts over the clock face itself.
+
+The detached reminder detail surface now follows low-contrast face themes more closely, including the transparent and minimal built-in looks.
 
 ### Tray Menu
 

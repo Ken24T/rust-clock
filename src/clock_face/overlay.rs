@@ -41,6 +41,7 @@ const HOVER_DETAIL_HORIZONTAL_PADDING_FACTOR: f32 = 0.08;
 const HOVER_DETAIL_VERTICAL_PADDING_FACTOR: f32 = 0.07;
 const HOVER_DETAIL_TITLE_GAP_FACTOR: f32 = 0.06;
 const HOVER_DETAIL_DIVIDER_GAP_FACTOR: f32 = 0.035;
+const TRANSLUCENT_OVERLAY_THEME_ALPHA_THRESHOLD: f32 = 0.20;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SummaryLaneLayout {
@@ -834,32 +835,76 @@ fn draw_hover_detail_panel(
 }
 
 fn hover_panel_backplate(style: HoverDetailStyle) -> Color {
-    if relative_luminance(opaque(style.face_colour)) >= 0.6 {
-        Color::from_rgb(0.94, 0.94, 0.92)
-    } else {
-        Color::from_rgb(0.14, 0.15, 0.17)
-    }
+    overlay_surface_colour(style, OverlaySurfaceLayer::Backplate)
 }
 
 fn hover_backdrop_colour(style: HoverDetailStyle) -> Color {
-    let backplate = hover_panel_backplate(style);
-
-    if relative_luminance(backplate) >= 0.6 {
-        mix_colours(backplate, Color::from_rgb(1.0, 1.0, 1.0), 0.08)
-    } else {
-        mix_colours(backplate, Color::from_rgb(0.05, 0.06, 0.08), 0.10)
-    }
+    overlay_surface_colour(style, OverlaySurfaceLayer::Backdrop)
 }
 
 fn hover_panel_background(style: HoverDetailStyle) -> Color {
-    let base = hover_panel_backplate(style);
-    let accent = if relative_luminance(base) >= 0.6 {
-        mix_colours(base, opaque(style.border_colour), 0.10)
-    } else {
-        mix_colours(base, opaque(style.text_colour), 0.08)
+    overlay_surface_colour(style, OverlaySurfaceLayer::Background)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OverlaySurfaceLayer {
+    Backplate,
+    Background,
+    Backdrop,
+}
+
+fn overlay_surface_colour(style: HoverDetailStyle, layer: OverlaySurfaceLayer) -> Color {
+    let face = opaque(style.face_colour);
+    let border = opaque(style.border_colour);
+    let text = opaque(style.text_colour);
+    let light_theme = relative_luminance(face) >= 0.6;
+    let translucent_theme = uses_translucent_overlay_surface(style);
+
+    let (accent, mix_amount, alpha) = match (translucent_theme, light_theme, layer) {
+        (true, _, OverlaySurfaceLayer::Backplate) => (
+            border,
+            0.10,
+            style
+                .border_colour
+                .a
+                .max(style.face_colour.a + 0.05)
+                .clamp(0.10, 0.16),
+        ),
+        (true, _, OverlaySurfaceLayer::Background) => (
+            text,
+            0.06,
+            style
+                .text_colour
+                .a
+                .max(style.face_colour.a + 0.09)
+                .clamp(0.14, 0.22),
+        ),
+        (true, _, OverlaySurfaceLayer::Backdrop) => (
+            border,
+            0.05,
+            style.face_colour.a.max(0.08).clamp(0.08, 0.12),
+        ),
+        (false, true, OverlaySurfaceLayer::Backplate) => {
+            (border, 0.10, style.face_colour.a.clamp(0.74, 0.90))
+        }
+        (false, true, OverlaySurfaceLayer::Background) => {
+            (text, 0.05, (style.face_colour.a + 0.03).clamp(0.78, 0.92))
+        }
+        (false, true, OverlaySurfaceLayer::Backdrop) => {
+            (border, 0.04, (style.face_colour.a - 0.10).clamp(0.58, 0.80))
+        }
+        (false, false, OverlaySurfaceLayer::Backplate) => {
+            (border, 0.14, style.face_colour.a.clamp(0.82, 0.96))
+        }
+        (false, false, OverlaySurfaceLayer::Background) => {
+            (text, 0.10, (style.face_colour.a + 0.02).clamp(0.84, 0.98))
+        }
+        (false, false, OverlaySurfaceLayer::Backdrop) => {
+            (border, 0.08, (style.face_colour.a - 0.08).clamp(0.68, 0.88))
+        }
     };
 
-    Color { a: 1.0, ..accent }
+    with_alpha(mix_colours(face, accent, mix_amount), alpha)
 }
 
 fn mix_colours(base: Color, accent: Color, amount: f32) -> Color {
@@ -875,6 +920,17 @@ fn mix_colours(base: Color, accent: Color, amount: f32) -> Color {
 
 fn opaque(colour: Color) -> Color {
     Color { a: 1.0, ..colour }
+}
+
+fn with_alpha(colour: Color, alpha: f32) -> Color {
+    Color {
+        a: alpha.clamp(0.0, 1.0),
+        ..colour
+    }
+}
+
+fn uses_translucent_overlay_surface(style: HoverDetailStyle) -> bool {
+    style.face_colour.a <= TRANSLUCENT_OVERLAY_THEME_ALPHA_THRESHOLD
 }
 
 fn relative_luminance(colour: Color) -> f32 {
@@ -1417,12 +1473,13 @@ mod tests {
         let backplate = hover_panel_backplate(style);
         let background = hover_panel_background(style);
 
-        assert_eq!(backplate.a, 1.0);
-        assert_eq!(background.a, 1.0);
-        assert_eq!(backplate, Color::from_rgb(0.94, 0.94, 0.92));
-        assert!(background.r <= backplate.r);
-        assert!(background.g <= backplate.g);
-        assert!(background.b <= backplate.b);
+        assert!(backplate.a < 1.0);
+        assert!(background.a < 1.0);
+        assert!(backplate.r < 1.0);
+        assert!(background.r >= backplate.r);
+        assert!(background.g >= backplate.g);
+        assert!(background.b >= backplate.b);
+        assert!(background.r < 1.0);
     }
 
     #[test]
@@ -1436,9 +1493,9 @@ mod tests {
         let backplate = hover_panel_backplate(style);
         let background = hover_panel_background(style);
 
-        assert_eq!(backplate.a, 1.0);
-        assert_eq!(background.a, 1.0);
-        assert_eq!(backplate, Color::from_rgb(0.14, 0.15, 0.17));
+        assert!(backplate.a < 1.0);
+        assert!(background.a < 1.0);
+        assert!(backplate.r >= style.face_colour.r);
         assert!(background.r >= backplate.r);
         assert!(background.g >= backplate.g);
         assert!(background.b >= backplate.b);
@@ -1453,10 +1510,10 @@ mod tests {
             shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
         });
 
-        assert_eq!(colour.a, 1.0);
-        assert!(colour.r >= 0.94);
-        assert!(colour.g >= 0.94);
-        assert!(colour.b >= 0.92);
+        assert!(colour.a < 0.9);
+        assert!(colour.r >= 0.95);
+        assert!(colour.g >= 0.95);
+        assert!(colour.b >= 0.95);
     }
 
     #[test]
@@ -1468,10 +1525,10 @@ mod tests {
             shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
         });
 
-        assert_eq!(colour.a, 1.0);
-        assert!(colour.r <= 0.14);
-        assert!(colour.g <= 0.15);
-        assert!(colour.b <= 0.17);
+        assert!(colour.a < 0.92);
+        assert!(colour.r >= 0.14);
+        assert!(colour.g >= 0.14);
+        assert!(colour.b >= 0.17);
     }
 
     #[test]
@@ -1496,5 +1553,49 @@ mod tests {
         assert!(text.r < 0.5);
         assert!(text.g < 0.5);
         assert!(text.b < 0.5);
+        assert!(background.a < 1.0);
+    }
+
+    #[test]
+    fn hover_panel_background_preserves_transparency_for_transparent_theme() {
+        let style = HoverDetailStyle {
+            face_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.05),
+            border_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.30),
+            text_colour: Color::from_rgba(1.0, 1.0, 1.0, 0.60),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.10),
+        };
+
+        let backplate = hover_panel_backplate(style);
+        let background = hover_panel_background(style);
+        let backdrop = hover_backdrop_colour(style);
+
+        assert!(backplate.a < 1.0);
+        assert!(background.a < 1.0);
+        assert!(backdrop.a < 1.0);
+        assert!(background.a >= backplate.a);
+        assert!(background.r >= 0.95);
+        assert!(background.g >= 0.95);
+        assert!(background.b >= 0.95);
+    }
+
+    #[test]
+    fn hover_panel_background_tracks_minimal_theme_tone() {
+        let style = HoverDetailStyle {
+            face_colour: Color::from_rgba(0.95, 0.95, 0.95, 0.85),
+            border_colour: Color::from_rgba(0.70, 0.70, 0.70, 1.0),
+            text_colour: Color::from_rgba(0.55, 0.55, 0.55, 1.0),
+            shadow_colour: Color::from_rgba(0.0, 0.0, 0.0, 0.15),
+        };
+
+        let backplate = hover_panel_backplate(style);
+        let background = hover_panel_background(style);
+
+        assert!(backplate.a < 1.0);
+        assert!(background.a < 1.0);
+        assert!(backplate.r < 0.95);
+        assert!(background.r >= backplate.r);
+        assert!(background.r > 0.88);
+        assert!(background.g > 0.88);
+        assert!(background.b > 0.88);
     }
 }

@@ -625,6 +625,72 @@ impl Alarm {
         self.kind.advance_after(now)
     }
 
+    pub fn resume_after_restart(
+        &mut self,
+        paused_at: DateTime<Local>,
+        resumed_at: DateTime<Local>,
+    ) -> bool {
+        if resumed_at <= paused_at || !self.enabled {
+            return false;
+        }
+
+        match &mut self.kind {
+            AlarmKind::Timer { target, .. } => {
+                if self.fired {
+                    return false;
+                }
+
+                let remaining = (*target - paused_at).num_seconds();
+
+                if remaining <= 0 {
+                    self.fired = true;
+                } else {
+                    *target = resumed_at + Duration::seconds(remaining);
+                }
+
+                true
+            }
+            AlarmKind::RepeatingInterval {
+                interval_secs,
+                next_target,
+            } => {
+                let remaining = (*next_target - paused_at).num_seconds();
+                let next_in = if remaining > 0 {
+                    remaining
+                } else {
+                    *interval_secs as i64
+                };
+
+                *next_target = resumed_at + Duration::seconds(next_in);
+                true
+            }
+            AlarmKind::AtTime { target } => {
+                if self.fired || *target > resumed_at {
+                    return false;
+                }
+
+                self.fired = true;
+                true
+            }
+            AlarmKind::RepeatingSchedule {
+                schedule,
+                next_target,
+            } => {
+                if *next_target > resumed_at {
+                    return false;
+                }
+
+                if let Some(next) = schedule.next_after(resumed_at) {
+                    *next_target = next;
+                } else {
+                    self.fired = true;
+                }
+
+                true
+            }
+        }
+    }
+
     /// Human-readable remaining time (e.g. "2m 30s", "in 1h 5m", or "passed").
     pub fn remaining_display(&self) -> String {
         let now = Local::now();
@@ -771,6 +837,89 @@ mod tests {
         assert!(alarm.should_fire_at(now));
         assert!(alarm.advance_after_fire(now));
         assert!(alarm.kind.target() > now);
+        assert!(!alarm.fired);
+    }
+
+    #[test]
+    fn one_shot_timer_resumes_from_remaining_time_after_restart() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::minutes(30);
+        let mut alarm = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: paused_at + Duration::minutes(8),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.resume_after_restart(paused_at, resumed_at));
+
+        let remaining = (alarm.kind.target() - resumed_at).num_seconds();
+        assert!(
+            remaining >= 479 && remaining <= 481,
+            "remaining was {remaining}"
+        );
+        assert!(!alarm.fired);
+    }
+
+    #[test]
+    fn repeating_interval_resumes_from_remaining_time_after_restart() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::minutes(20);
+        let mut alarm = Alarm::new(
+            "Stretch",
+            AlarmKind::RepeatingInterval {
+                interval_secs: 900,
+                next_target: paused_at + Duration::minutes(4),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.resume_after_restart(paused_at, resumed_at));
+
+        let remaining = (alarm.kind.target() - resumed_at).num_seconds();
+        assert!(
+            remaining >= 239 && remaining <= 241,
+            "remaining was {remaining}"
+        );
+        assert!(!alarm.fired);
+    }
+
+    #[test]
+    fn one_shot_alarm_missed_while_closed_does_not_fire_late() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::hours(2);
+        let mut alarm = Alarm::new(
+            "Meeting",
+            AlarmKind::AtTime {
+                target: paused_at + Duration::minutes(30),
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.resume_after_restart(paused_at, resumed_at));
+        assert!(alarm.fired);
+        assert!(!alarm.should_fire_at(resumed_at));
+    }
+
+    #[test]
+    fn repeating_schedule_skips_missed_occurrence_while_closed() {
+        let paused_at = Local::now();
+        let resumed_at = paused_at + Duration::days(2);
+        let time = (paused_at - Duration::minutes(1)).time();
+        let schedule = RecurrenceRule::Daily { time };
+        let mut alarm = Alarm::new(
+            "Daily",
+            AlarmKind::RepeatingSchedule {
+                next_target: paused_at + Duration::hours(12),
+                schedule,
+            },
+            AlertAction::Both,
+        );
+
+        assert!(alarm.resume_after_restart(paused_at, resumed_at));
+        assert!(alarm.kind.target() > resumed_at);
         assert!(!alarm.fired);
     }
 
