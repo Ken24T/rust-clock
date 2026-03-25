@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This agent governs milestone, shipping, sync, status, recovery, and deployment actions for Rust Clock.
+This agent governs milestone, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
 
 Primary objective: no code is ever lost while keeping local and remote repository state validated, recoverable, and easy to resume on another machine.
 
-This workflow is for explicit operator actions such as `ship`, `handover`, `deploy`, `status`, `abort`, and `branch <name>`. It is not for normal feature implementation work.
+This workflow is for explicit operator actions such as `ship`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, and `branch <name>`. It is not for normal feature implementation work.
 
 Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
 
@@ -15,7 +15,8 @@ Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
 - `.github/TCTBP.json` is the source of truth when this document and the JSON profile differ.
 - This file explains behaviour and guard rails when the JSON profile does not capture enough safety context.
 - `.github/TCTBP Cheatsheet.md` is the short operator summary.
-- `.github/copilot-instructions.md` contains repo-specific engineering guidance and should stay aligned with the workflow files.
+- `.github/agents/TCTBP.agent.md` is the runtime entry point for explicit TCTBP trigger routing.
+- `.github/copilot-instructions.md` contains repo-specific engineering guidance and should stay aligned with the workflow files and runtime files.
 
 ## Repo Profile
 
@@ -38,13 +39,13 @@ Repo-specific operational values that must be preserved:
 
 ## Core Invariants
 
-1. Verification must pass before irreversible actions unless `TCTBP.json` explicitly allows a docs/infra-only shortcut.
+1. Verification must pass before irreversible actions unless `.github/TCTBP.json` explicitly allows a docs/infra-only shortcut.
 2. Problems must be zero before any commit.
 3. Protected Git actions such as push, force-push, branch deletion, history rewrite, or remote modification require explicit approval unless granted by the active workflow trigger.
 4. Tags must correspond exactly to the version committed in `Cargo.toml` and point to the commit that introduced that version.
 5. No-code-loss takes priority over workflow completion.
 6. Do not use hard reset, destructive checkout, auto-rebase, or force-push as normal workflow shortcuts.
-7. Keep versioned artefacts, workflow files, and documentation aligned.
+7. Keep versioned artefacts, workflow files, runtime files, and documentation aligned.
 8. Use the normal build gate by default; reserve release builds for install, packaging, or deployment work.
 
 If any invariant fails, stop and explain the blocker.
@@ -54,8 +55,10 @@ If any invariant fails, stop and explain the blocker.
 Supported workflow triggers are:
 
 - `ship`, `ship please`, `shipping`, `prepare release`
+- `publish`, `publish please`
 - `deploy`, `deploy please`
 - `handover`, `handover please`
+- `resume`, `resume please`
 - `status`, `status please`
 - `abort`
 - `branch <new-branch-name>`
@@ -71,7 +74,7 @@ Do not treat a bare `tctbp` request as implicit permission to mutate repository 
 
 ## Docs/Infra-Only Detection
 
-A changeset is docs-only or infrastructure-only only when every changed file matches the repo rules in `TCTBP.json`, for example:
+A changeset is docs-only or infrastructure-only only when every changed file matches the repo rules in `.github/TCTBP.json`, for example:
 
 - `*.md`, `*.txt`, `*.rst`
 - `docs/**`
@@ -80,6 +83,21 @@ A changeset is docs-only or infrastructure-only only when every changed file mat
 - `LICENSE*`, `CHANGELOG*`, `CONTRIBUTING*`
 
 Build manifests, installer definitions, desktop entries, and runtime configuration are not docs-only by default just because they are text files.
+
+## Publish Workflow
+
+Trigger: `publish` / `publish please`
+
+Purpose: safely publish the current clean branch to origin without creating a release, bumping a version, creating a tag, or updating handover metadata.
+
+Key rules:
+
+- stop if `HEAD` is detached
+- stop if the working tree is dirty
+- fetch origin before deciding whether a push is required
+- create an upstream on first publication when the branch is otherwise clean and unpublished
+- stop if the branch is behind or diverged from origin
+- never create a version bump, tag, or metadata update as part of `publish`
 
 ## Branch Workflow
 
@@ -95,7 +113,8 @@ Key rules:
 - stop if the source branch is dirty and SHIP is declined
 - stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
 - fast-forward local `main` when clean and behind origin
-- merge the source branch into `main` non-destructively when the workflow starts on a non-default branch
+- ask for explicit confirmation before merging a non-default branch back into `main`
+- treat merge-to-`main` as the expected default outcome, but stop if that merge is explicitly declined
 - verify the source branch tip is reachable from `main` before optional cleanup
 - require explicit approval for push and branch deletion
 
@@ -105,29 +124,27 @@ Never use stash, reset, rebase, force-push, or destructive checkout as part of t
 
 Trigger: `handover` / `handover please`
 
-Purpose: reconcile the active work branch with origin so work can stop on one machine and resume on another from the latest safely recoverable shared state.
+Purpose: safely checkpoint and publish the current work branch at end of day, then refresh the handover metadata branch so another machine can resume from a deterministic shared state.
 
 Scope:
 
-- syncs the active work branch
+- syncs the current work branch
 - syncs relevant tags when needed
 - maintains the metadata branch `tctbp/handover-state`
 - does not attempt to reconcile every branch in the repository
-- does not merge the active work branch into `main` as part of ordinary multi-machine sync
+- does not merge the current work branch into `main` as part of ordinary multi-machine sync
 
 Handover metadata:
 
 - metadata branch: `tctbp/handover-state`
 - metadata file: `.github/TCTBP_STATE.json`
-- metadata is consulted before arbitrary branch-recency inference
+- metadata is refreshed after the current branch is safely published
 - the metadata branch is never treated as a work branch candidate
 
 Key safety rules:
 
 - stop if `HEAD` is detached
 - preserve dirty unpublished work through a durable checkpoint when necessary
-- prefer valid metadata over an arbitrary clean non-default branch
-- ask before switching branches when selection is ambiguous
 - allow fast-forward only when local is clean and behind
 - stop on divergence rather than guessing
 - never auto-merge or auto-rebase as part of reconciliation
@@ -137,7 +154,22 @@ Handover summary format:
 
 - use a concise four-column table with `Origin`, `Local`, `Status`, and `Action(s)`
 - keep the final table shorter than `status`
-- confirm target branch state, last shipped tag, metadata branch state, metadata consistency, and final synced baseline
+- confirm current branch state, last shipped tag, metadata branch state, metadata consistency, and final synced baseline
+
+## Resume Workflow
+
+Trigger: `resume` / `resume please`
+
+Purpose: restore the intended work branch at start of day by consulting handover metadata first, switching safely when needed, and reconciling only through non-destructive checkout and fast-forward operations.
+
+Key safety rules:
+
+- stop if `HEAD` is detached
+- consult metadata before arbitrary branch-recency inference
+- prefer metadata over an arbitrary clean non-default branch
+- create a local tracking branch from remote when the intended branch is published but missing locally
+- allow fast-forward only when local is clean and behind
+- stop when local is ahead, diverged, or ambiguous instead of publishing during `resume`
 
 ## Status Workflow
 
@@ -149,7 +181,7 @@ Behaviour:
 
 - fetch remote state first
 - render a four-column table using `Origin`, `Local`, `Status`, and `Action(s)`
-- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `ship` or `handover` is recommended
+- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `publish`, `ship`, or `handover` is recommended
 - never mutate the repo from `status`
 
 ## Abort Workflow
@@ -212,7 +244,7 @@ If the requested deployment target is not one of these explicit cases, stop and 
 
 Trigger: `ship` / `ship please` / `shipping` / `prepare release`
 
-Purpose: create a formal shipped version only from a clean, fetched, synced branch.
+Purpose: create a formal shipped version only from a clean, fetched branch.
 
 Workflow order:
 
@@ -230,7 +262,7 @@ Preflight guard rails:
 
 - fetch origin when needed
 - stop if `HEAD` is detached
-- stop if the branch has no upstream
+- allow first publication from a clean unpublished branch
 - stop if the branch is behind or diverged from origin
 - stop if the working tree is dirty
 - render a release-focused four-column snapshot table before mutating anything
@@ -238,8 +270,8 @@ Preflight guard rails:
 Verify and build policy:
 
 - normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
-- use `cargo build --release` only when the user explicitly requests installation, packaging, or deployment work, or when deploy workflow requires it
-- docs/infra-only changes may skip heavy code gates according to `TCTBP.json`, but still require editor diagnostics and docs impact assessment
+- use `cargo build --release` only when the user explicitly requests installation, packaging, or deployment work, or when the deploy workflow requires it
+- docs/infra-only changes may skip heavyweight code gates according to `.github/TCTBP.json`, but still require editor diagnostics and docs impact assessment
 
 Versioning rules:
 
