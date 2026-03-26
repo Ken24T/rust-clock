@@ -11,7 +11,7 @@ Use this prompt inside a repository that already uses TCTBP when you want Copilo
 
 ## Goal
 
-Apply this repository's TCTBP runtime surface to a target repository safely so that Copilot can choose the correct path for one of three cases:
+Apply the current repository's TCTBP runtime surface to a target repository safely so that Copilot can choose the correct path for one of three cases:
 
 - a brand new repository with no TCTBP files yet
 - an existing repository that has some TCTBP workflow files but no custom agent runtime
@@ -24,6 +24,7 @@ Depending on the detected or requested state, the target repository should gain 
 - aligned Markdown workflow guidance
 - a single reusable TCTBP application prompt
 - optional runtime hook enforcement for risky git commands
+- an ignore rule that keeps local TCTBP file-backup artefacts out of normal commits
 
 The current repository is the source of generic workflow logic.
 The target repository is the source of repo-specific commands, paths, deployment details, and intentional local deviations.
@@ -64,6 +65,7 @@ If `Include hook layer` is `YES`, also read:
 
 Inspect the target repository before editing anything. Read the local versions of these files when they exist:
 
+- `.gitignore`
 - `.github/agents/TCTBP.agent.md`
 - `.github/TCTBP.json`
 - `.github/TCTBP Agent.md`
@@ -87,6 +89,7 @@ Do not infer repo-specific settings from the current source repository when the 
 
 Install or update these files in the target repository:
 
+- `.gitignore`
 - `.github/agents/TCTBP.agent.md`
 - `.github/TCTBP.json`
 - `.github/TCTBP Agent.md`
@@ -150,7 +153,7 @@ If `Target repository state` is `EXISTING_REPOSITORY_WITH_AGENT`:
 
 ## What Must Be Customised In The Target Repository
 
-Do not leave source-repository-specific values behind. Customise at least these categories:
+Do not leave source-repo-specific values behind. Customise at least these categories:
 
 - project name and description
 - default branch name
@@ -192,27 +195,30 @@ If `Include hook layer` is `NO`:
 7. Create the required files and folders in the target repo.
 8. Preserve repo-specific settings while applying the current runtime model.
 9. Keep these target files aligned with each other after editing:
+   - `.gitignore`
    - `.github/agents/TCTBP.agent.md`
    - `.github/TCTBP.json`
    - `.github/TCTBP Agent.md`
    - `.github/TCTBP Cheatsheet.md`
    - `.github/copilot-instructions.md`
    - `.github/prompts/Install TCTBP Agent Infrastructure Into Another Repository.prompt.md`
-10. If the hook layer is included, keep `.github/hooks/tctbp-safety.json` and `scripts/tctbp-pretool-hook.js` aligned with the installed documentation.
-11. Validate the edited files using available JSON and Markdown diagnostics and any lightweight repo validation that fits the change type.
-12. Run a post-install smoke check for the installed runtime surface:
+10. Ensure `.gitignore` ignores `.github/.tctbp-backups/` so local file backups created by reconcile work do not get committed as normal workflow changes.
+11. If backup artefacts under `.github/.tctbp-backups/` are already tracked in the target repository, remove them from version control non-destructively while preserving the local backup files.
+12. If the hook layer is included, keep `.github/hooks/tctbp-safety.json` and `scripts/tctbp-pretool-hook.js` aligned with the installed documentation.
+13. Validate the edited files using available JSON and Markdown diagnostics and any lightweight repo validation that fits the change type.
+14. Run a post-install smoke check for the installed runtime surface:
    - confirm `.github/agents/TCTBP.agent.md` frontmatter is valid and its description still contains the explicit trigger phrases
    - confirm prompt frontmatter is valid and references the installed runtime files consistently
    - confirm `.github/hooks/tctbp-safety.json` points at the installed hook script path when the hook layer is enabled
    - confirm no docs or instructions still reference omitted hook files when the hook layer is disabled
-13. Do not perform SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
+15. Do not perform SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
 
 ## What You Must Not Do
 
 Do not:
 
-- leave references instructing the target repo to depend on another repository at runtime
-- copy repo-specific commands or paths from the source repository into the target repository without adaptation
+- leave references instructing the target repo to depend on the source repo at runtime
+- copy repo-specific commands or paths from the source repo into the target repo without adaptation
 - overwrite existing target-repo workflow files wholesale without review
 - guess unknown commands, version files, deploy steps, or docs paths
 - install the hook layer without also installing its supporting script

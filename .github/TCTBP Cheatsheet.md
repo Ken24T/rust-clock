@@ -187,13 +187,15 @@ Recovery expectations:
 - preserve unpublished work before cleanup when needed
 - never rewrite history or force-push without explicit extra confirmation
 
-### `branch <new-branch-name>`
+### `branch` / `branch <new-branch-name>`
 
 Purpose:
-Close out current work cleanly and start the next branch.
+Close out current work cleanly, optionally starting the next branch.
 
 Attempts to:
 
+- close out the current branch and leave the repo on updated `main` when invoked as `branch`
+- close out the current branch and start the next branch from updated `main` when invoked as `branch <new-branch-name>`
 - assess whether the current branch should be shipped first
 - stop if `HEAD` is detached
 - stop if the requested new branch name is invalid or already exists locally or remotely
@@ -250,4 +252,4 @@ Repo-specific docs commonly reviewed:
 - Need the local runtime installed or the Windows installer built: use `deploy`
 - Need a quick repo state check: use `status`
 - Need to recover from a partial workflow state: use `abort`
-- Need to start the next branch: use `branch <new-branch-name>`
+- Need to close out the current branch or start the next one: use `branch` or `branch <new-branch-name>`
