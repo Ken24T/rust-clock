@@ -24,7 +24,21 @@ Implementation status lives in `PLAN.md`. Feature-specific planning and design n
 | `docs/` | User guide, Windows installer notes, platform plans, feature plans |
 | `installer/windows/` | Windows installer script and Inno Setup definition |
 | `assets/` | Desktop entry and related Linux app metadata |
-| `.github/` | Copilot instructions, TCTBP workflow files, and prompt assets |
+| `.github/` | Copilot instructions, TCTBP runtime/workflow files, prompts, and optional hook assets |
+
+## TCTBP Runtime Surface
+
+The Rust Clock TCTBP runtime and workflow surface lives in:
+
+- `.github/agents/TCTBP.agent.md`
+- `.github/TCTBP.json`
+- `.github/TCTBP Agent.md`
+- `.github/TCTBP Cheatsheet.md`
+- `.github/copilot-instructions.md`
+- `.github/prompts/Install TCTBP Agent Infrastructure Into Another Repository.prompt.md`
+- optional hook layer: `.github/hooks/tctbp-safety.json` and `scripts/tctbp-pretool-hook.js`
+
+Keep these files aligned when the workflow or runtime entry points change.
 
 ## Development Commands
 
@@ -88,7 +102,7 @@ pwsh -File .\installer\windows\build-installer.ps1   # Windows installer packagi
 5. Preserve the repo’s plain semver tag convention such as `1.1.2` unless explicitly changed.
 6. Do not introduce `unsafe` without a documented justification and a `// SAFETY:` comment.
 7. Prefer focused files and extract modules when logic becomes hard to scan.
-8. Keep `.github/TCTBP.json`, `.github/TCTBP Agent.md`, `.github/TCTBP Cheatsheet.md`, and `.github/copilot-instructions.md` aligned when workflow guidance changes.
+8. Keep `.github/agents/TCTBP.agent.md`, `.github/TCTBP.json`, `.github/TCTBP Agent.md`, `.github/TCTBP Cheatsheet.md`, `.github/copilot-instructions.md`, and any installed hook files aligned when workflow guidance changes.
 
 ## Documentation Expectations
 
@@ -109,10 +123,11 @@ When behaviour changes, review the repo docs that match the change:
 
 ## TCTBP Workflow
 
-For SHIP, handover, deploy, status, abort, and branch transition rules, use:
+For SHIP, publish, handover, resume, deploy, status, abort, and branch transition rules, use:
 
 - `.github/TCTBP.json` as the authoritative machine-readable profile
 - `.github/TCTBP Agent.md` for workflow guard rails and interpretation
 - `.github/TCTBP Cheatsheet.md` for quick operator guidance
+- `.github/agents/TCTBP.agent.md` as the runtime trigger-routing entry point
 
 For this repo, treat `cargo build` as the normal verification build and reserve `cargo build --release` for explicit installation, packaging, or deployment work.

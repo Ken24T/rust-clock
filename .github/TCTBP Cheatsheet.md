@@ -64,16 +64,37 @@ Notes:
 - uses `cargo build`, not `cargo build --release`, as the default build gate
 - patch bump happens on every ship unless the changes are docs-only or infrastructure-only
 - first ship on a `feature/` branch gets a minor bump
-- stops if the branch is dirty, missing an upstream, behind origin, diverged from origin, or on detached `HEAD`
+- may publish a clean branch that has no upstream yet by creating the upstream on the first ship push
+- stops if the branch is dirty, behind origin, diverged from origin, or on detached `HEAD`
+
+### `publish` / `publish please`
+
+Purpose:
+Safely publish the current branch to `origin` without release semantics.
+
+Attempts to:
+
+- preflight the current branch state
+- fetch and compare local versus origin
+- allow first publication by creating the upstream when needed
+- push the current branch when it is clean and ahead
+- verify that the branch is now synced
+
+Notes:
+
+- does not bump version
+- does not create a tag
+- does not update handover metadata
+- stops if the branch is dirty, behind, diverged, or detached
 
 ### `handover` / `handover please`
 
 Purpose:
-Safely reconcile the working branch with `origin` so you can stop on one machine and resume on another.
+Safely checkpoint and publish the current work branch at the end of a session, then refresh handover metadata so another machine can resume deterministically.
 
 Scope:
 
-- syncs the active work branch
+- syncs the current work branch
 - syncs relevant tags when needed
 - maintains `tctbp/handover-state`
 - does not reconcile every branch in the repository
@@ -86,11 +107,31 @@ Handover metadata:
 
 Notes:
 
-- prefers valid handover metadata over arbitrary clean-branch recency
 - can checkpoint dirty unpublished work before verification strands it
 - fast-forwards when behind and clean
 - stops on divergence or ambiguity
 - ends with a concise four-column table and a one-line completion summary
+
+### `resume` / `resume please`
+
+Purpose:
+Safely restore the intended work branch at the start of a session.
+
+Attempts to:
+
+- fetch and inspect remote state
+- read the handover metadata branch first
+- prefer metadata over arbitrary branch-recency guesses
+- create a local tracking branch from the intended remote branch when needed
+- fast-forward a clean branch when origin is ahead
+- stop on ambiguity, divergence, or any case that would require publication
+
+Notes:
+
+- does not publish
+- does not update metadata
+- does not create a release
+- stops if switching branches would be destructive or if local/remote state is ambiguous
 
 ### `deploy` / `deploy please`
 
@@ -127,7 +168,7 @@ Notes:
 
 - fetches first
 - uses the fuller four-column table: `Origin`, `Local`, `Status`, `Action(s)`
-- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, and handover relevance
+- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `publish`, `ship`, or `handover` is recommended
 
 ### `abort`
 
@@ -146,19 +187,23 @@ Recovery expectations:
 - preserve unpublished work before cleanup when needed
 - never rewrite history or force-push without explicit extra confirmation
 
-### `branch <new-branch-name>`
+### `branch` / `branch <new-branch-name>`
 
 Purpose:
-Close out current work cleanly and start the next branch.
+Close out current work cleanly, optionally starting the next branch.
 
 Attempts to:
 
+- close out the current branch and leave the repo on updated `main` when invoked as `branch`
+- close out the current branch and start the next branch from updated `main` when invoked as `branch <new-branch-name>`
 - assess whether the current branch should be shipped first
 - stop if `HEAD` is detached
 - stop if the requested new branch name is invalid or already exists locally or remotely
 - stop instead of switching if the current branch is dirty and SHIP is declined
 - stop instead of guessing if the source branch or local `main` is diverged
 - stop if the source branch is ahead, behind, or unpublished relative to its upstream
+- recommend `publish`, `handover`, or `ship` first when the source branch is not yet published or synced
+- ask for explicit confirmation before merging the current non-default branch back into `main`
 - merge the current branch into local `main` when the current branch is not already `main`
 - skip the merge step when the workflow already starts on `main`
 - create and switch to the new branch from updated local `main`
@@ -193,15 +238,18 @@ Repo-specific docs commonly reviewed:
 ## Approval Model
 
 - `ship` may create local commit and tag state as part of the workflow
-- `handover` grants approval to push the target branch and relevant tags for that workflow only
+- `publish` grants approval to push the current branch for that workflow only
+- `handover` grants approval to push the current branch, metadata branch, and relevant tags for that workflow only
 - `deploy` grants approval to run the repo-defined deployment commands for that workflow only
 - any other remote push still requires explicit approval unless already covered by the active workflow
 
 ## Quick Choice
 
 - Need a release version or tag: use `ship`
+- Need to sync a clean branch without release or metadata side effects: use `publish`
 - Need to stop on one machine and resume on another safely: use `handover`
+- Need to restore the last handed-over branch before starting work: use `resume`
 - Need the local runtime installed or the Windows installer built: use `deploy`
 - Need a quick repo state check: use `status`
 - Need to recover from a partial workflow state: use `abort`
-- Need to start the next branch: use `branch <new-branch-name>`
+- Need to close out the current branch or start the next one: use `branch` or `branch <new-branch-name>`
