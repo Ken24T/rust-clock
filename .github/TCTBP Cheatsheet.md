@@ -87,6 +87,29 @@ Notes:
 - does not update handover metadata
 - stops if the branch is dirty, behind, diverged, or detached
 
+### `checkpoint` / `checkpoint please`
+
+Purpose:
+Create a durable local-only checkpoint commit without release or sync side effects.
+
+Attempts to:
+
+- preflight the current branch and working tree state
+- stop if `HEAD` is detached, the tree is clean, conflicts exist, or a merge/rebase/cherry-pick/revert is in progress
+- stage the current non-ignored tracked and new files
+- create a clearly marked non-release local commit
+- end with a concise four-column table showing the pre-checkpoint commit, the new checkpoint commit, resulting sync state, and explicit local-only outcome
+- confirm that nothing was pushed, tagged, or handed over
+
+Notes:
+
+- does not push
+- does not bump version
+- does not create a tag
+- does not update handover metadata
+- may leave the branch ahead of or further diverged from origin because it is local-only
+- handover may reuse a recent matching checkpoint commit instead of creating another one
+
 ### `handover` / `handover please`
 
 Purpose:
@@ -168,7 +191,7 @@ Notes:
 
 - fetches first
 - uses the fuller four-column table: `Origin`, `Local`, `Status`, `Action(s)`
-- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `publish`, `ship`, or `handover` is recommended
+- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 
 ### `abort`
 
@@ -238,6 +261,7 @@ Repo-specific docs commonly reviewed:
 ## Approval Model
 
 - `ship` may create local commit and tag state as part of the workflow
+- `checkpoint` grants approval only for the local checkpoint commit it creates
 - `publish` grants approval to push the current branch for that workflow only
 - `handover` grants approval to push the current branch, metadata branch, and relevant tags for that workflow only
 - `deploy` grants approval to run the repo-defined deployment commands for that workflow only
@@ -246,6 +270,7 @@ Repo-specific docs commonly reviewed:
 ## Quick Choice
 
 - Need a release version or tag: use `ship`
+- Need a durable local-only save without remote side effects: use `checkpoint`
 - Need to sync a clean branch without release or metadata side effects: use `publish`
 - Need to stop on one machine and resume on another safely: use `handover`
 - Need to restore the last handed-over branch before starting work: use `resume`

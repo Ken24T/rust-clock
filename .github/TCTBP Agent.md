@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This agent governs milestone, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
+This agent governs milestone, checkpointing, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
 
 Primary objective: no code is ever lost while keeping local and remote repository state validated, recoverable, and easy to resume on another machine.
 
-This workflow is for explicit operator actions such as `ship`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, `branch`, and `branch <name>`. It is not for normal feature implementation work.
+This workflow is for explicit operator actions such as `ship`, `checkpoint`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, `branch`, and `branch <name>`. It is not for normal feature implementation work.
 
 Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
 
@@ -55,6 +55,7 @@ If any invariant fails, stop and explain the blocker.
 Supported workflow triggers are:
 
 - `ship`, `ship please`, `shipping`, `prepare release`
+- `checkpoint`, `checkpoint please`
 - `publish`, `publish please`
 - `deploy`, `deploy please`
 - `handover`, `handover please`
@@ -100,6 +101,23 @@ Key rules:
 - stop if the branch is behind or diverged from origin
 - never create a version bump, tag, or metadata update as part of `publish`
 
+## Checkpoint Workflow
+
+Trigger: `checkpoint` / `checkpoint please`
+
+Purpose: create a durable local-only checkpoint commit on the current branch without changing version, tags, metadata, or remote state.
+
+Key rules:
+
+- stop if `HEAD` is detached
+- stop if the working tree is clean
+- stop if conflicts exist or a merge, rebase, cherry-pick, or revert is in progress
+- stage the current non-ignored tracked and untracked changes
+- create a clearly marked local-only checkpoint commit
+- do not block on heavyweight verification gates, though existing diagnostics may still be reported for awareness
+- do not push, create a tag, bump version, update metadata, or switch branches as part of `checkpoint`
+- end with a concise four-column table and explicit confirmation that no remote state changed
+
 ## Branch Workflow
 
 Trigger: `branch` or `branch <new-branch-name>`
@@ -113,6 +131,7 @@ Key rules:
 - validate the requested branch name before mutating anything in next-branch mode
 - stop if the target branch already exists locally or on origin in next-branch mode
 - stop if the source branch is dirty and SHIP is declined
+- if the source branch is dirty and SHIP is declined, recommend `checkpoint`, then `publish` or `handover`, before retrying `branch`
 - stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
 - fast-forward local `main` when clean and behind origin
 - ask for explicit confirmation before merging a non-default branch back into `main`
@@ -149,6 +168,7 @@ Key safety rules:
 
 - stop if `HEAD` is detached
 - preserve dirty unpublished work through a durable checkpoint when necessary
+- a recent matching standalone `checkpoint` commit may be reused instead of creating another one
 - allow fast-forward only when local is clean and behind
 - stop on divergence rather than guessing
 - never auto-merge or auto-rebase as part of reconciliation
@@ -185,7 +205,7 @@ Behaviour:
 
 - fetch remote state first
 - render a four-column table using `Origin`, `Local`, `Status`, and `Action(s)`
-- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `publish`, `ship`, or `handover` is recommended
+- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 - never mutate the repo from `status`
 
 ## Abort Workflow
