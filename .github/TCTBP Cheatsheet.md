@@ -62,7 +62,8 @@ Notes:
 
 - starts with a four-column table: `Origin`, `Local`, `Status`, `Action(s)`
 - uses `cargo build`, not `cargo build --release`, as the default build gate
-- patch bump happens on every ship unless the changes are docs-only or infrastructure-only
+- patch bump behaviour is controlled by `versioning.patchEveryShip` and `versioning.patchEveryShipForDocsInfrastructureOnly` in `.github/TCTBP.json`
+- in this repo, docs-only and infrastructure-only ships do not bump by default
 - first ship on a `feature/` branch gets a minor bump
 - may publish a clean branch that has no upstream yet by creating the upstream on the first ship push
 - stops if the branch is dirty, behind origin, diverged from origin, or on detached `HEAD`
@@ -86,6 +87,32 @@ Notes:
 - does not create a tag
 - does not update handover metadata
 - stops if the branch is dirty, behind, diverged, or detached
+
+### `checkpoint` / `checkpoint please`
+
+Purpose:
+Create a durable local-only checkpoint commit on the current branch without release or sync side effects.
+
+Attempts to:
+
+- preflight the current branch and working tree state
+- stop if `HEAD` is detached, the tree is clean, conflicts exist, or a merge/rebase/cherry-pick/revert is in progress
+- stage the current non-ignored tracked and new files
+- create a clearly marked non-release local commit
+- end with a concise four-column table showing the pre-checkpoint commit, the new checkpoint commit, resulting sync state, and explicit local-only outcome
+- confirm that nothing was pushed, tagged, or handed over
+
+Notes:
+
+- ends with a concise four-column table: `Origin`, `Local`, `Status`, `Action(s)`
+- the table should show the actual pre-checkpoint commit and the new checkpoint commit, not only the final SHA
+- does not push
+- does not bump version
+- does not create a tag
+- does not update handover metadata
+- does not reconcile with origin
+- may leave the branch ahead of or further diverged from origin because it is local-only
+- handover may reuse a recent matching checkpoint commit instead of creating another one
 
 ### `handover` / `handover please`
 
@@ -168,7 +195,7 @@ Notes:
 
 - fetches first
 - uses the fuller four-column table: `Origin`, `Local`, `Status`, `Action(s)`
-- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `publish`, `ship`, or `handover` is recommended
+- includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 
 ### `abort`
 
@@ -187,10 +214,10 @@ Recovery expectations:
 - preserve unpublished work before cleanup when needed
 - never rewrite history or force-push without explicit extra confirmation
 
-### `branch <new-branch-name>`
+### `branch` / `branch <new-branch-name>`
 
 Purpose:
-Close out current work cleanly and start the next branch.
+Close out current work cleanly, optionally starting the next branch.
 
 Attempts to:
 
@@ -204,7 +231,8 @@ Attempts to:
 - ask for explicit confirmation before merging the current non-default branch back into `main`
 - merge the current branch into local `main` when the current branch is not already `main`
 - skip the merge step when the workflow already starts on `main`
-- create and switch to the new branch from updated local `main`
+- create and switch to the new branch from updated local `main` when a new branch name was supplied
+- allow closeout-only mode that leaves the repo on updated `main` when the user runs bare `branch`
 
 ## Docs Impact Reminder
 
@@ -236,6 +264,7 @@ Repo-specific docs commonly reviewed:
 ## Approval Model
 
 - `ship` may create local commit and tag state as part of the workflow
+- `checkpoint` grants approval only for the local checkpoint commit it creates
 - `publish` grants approval to push the current branch for that workflow only
 - `handover` grants approval to push the current branch, metadata branch, and relevant tags for that workflow only
 - `deploy` grants approval to run the repo-defined deployment commands for that workflow only
@@ -244,10 +273,11 @@ Repo-specific docs commonly reviewed:
 ## Quick Choice
 
 - Need a release version or tag: use `ship`
+- Need a durable local-only save before deciding whether to publish or hand over: use `checkpoint`
 - Need to sync a clean branch without release or metadata side effects: use `publish`
 - Need to stop on one machine and resume on another safely: use `handover`
 - Need to restore the last handed-over branch before starting work: use `resume`
 - Need the local runtime installed or the Windows installer built: use `deploy`
 - Need a quick repo state check: use `status`
 - Need to recover from a partial workflow state: use `abort`
-- Need to start the next branch: use `branch <new-branch-name>`
+- Need to close out the current branch or start the next branch: use `branch` or `branch <new-branch-name>`

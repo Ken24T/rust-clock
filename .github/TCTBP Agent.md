@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This agent governs milestone, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
+This agent governs milestone, checkpointing, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
 
 Primary objective: no code is ever lost while keeping local and remote repository state validated, recoverable, and easy to resume on another machine.
 
-This workflow is for explicit operator actions such as `ship`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, and `branch <name>`. It is not for normal feature implementation work.
+This workflow is for explicit operator actions such as `ship`, `checkpoint`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, `branch`, and `branch <name>`. It is not for normal feature implementation work.
 
 Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
 
@@ -40,7 +40,7 @@ Repo-specific operational values that must be preserved:
 ## Core Invariants
 
 1. Verification must pass before irreversible actions unless `.github/TCTBP.json` explicitly allows a docs/infra-only shortcut.
-2. Problems must be zero before any commit.
+2. Problems must be zero before any release, publication-linked, or shared-state commit, unless `.github/TCTBP.json` explicitly allows a local-only checkpoint commit to preserve work first.
 3. Protected Git actions such as push, force-push, branch deletion, history rewrite, or remote modification require explicit approval unless granted by the active workflow trigger.
 4. Tags must correspond exactly to the version committed in `Cargo.toml` and point to the commit that introduced that version.
 5. No-code-loss takes priority over workflow completion.
@@ -55,12 +55,14 @@ If any invariant fails, stop and explain the blocker.
 Supported workflow triggers are:
 
 - `ship`, `ship please`, `shipping`, `prepare release`
+- `checkpoint`, `checkpoint please`
 - `publish`, `publish please`
 - `deploy`, `deploy please`
 - `handover`, `handover please`
 - `resume`, `resume please`
 - `status`, `status please`
 - `abort`
+- `branch`
 - `branch <new-branch-name>`
 
 Do not treat a bare `tctbp` request as implicit permission to mutate repository state.
@@ -99,16 +101,34 @@ Key rules:
 - stop if the branch is behind or diverged from origin
 - never create a version bump, tag, or metadata update as part of `publish`
 
-## Branch Workflow
+## Checkpoint Workflow
 
-Trigger: `branch <new-branch-name>`
+Trigger: `checkpoint` / `checkpoint please`
 
-Purpose: close out the current branch safely and create the next branch without losing code.
+Purpose: create a durable local-only checkpoint commit on the current branch without changing version, tags, metadata, or remote state.
 
 Key rules:
 
 - stop if `HEAD` is detached
-- validate the requested branch name before mutating anything
+- stop if the working tree is clean
+- stop if the working tree has unresolved conflicts or if a merge, rebase, cherry-pick, or revert is in progress
+- stage the current non-ignored tracked and untracked changes on the current branch
+- create a clearly marked local-only commit using the configured checkpoint message prefix
+- do not run heavyweight verification gates as a blocker for this workflow
+- if diagnostics are already available, they may be reported for awareness only
+- end with a concise four-column table covering the previous `HEAD`, new checkpoint commit, resulting working-tree state, upstream sync state, and explicit local-only outcome
+- never push, create a tag, bump version, update handover metadata, or change branches as part of `checkpoint`
+
+## Branch Workflow
+
+Trigger: `branch` or `branch <new-branch-name>`
+
+Purpose: close out the current branch safely and either stop on `main` or create the next branch without losing code.
+
+Key rules:
+
+- stop if `HEAD` is detached
+- validate the requested branch name before mutating anything when a new branch was requested
 - stop if the target branch already exists locally or on origin
 - stop if the source branch is dirty and SHIP is declined
 - stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
@@ -150,12 +170,6 @@ Key safety rules:
 - never auto-merge or auto-rebase as part of reconciliation
 - update the metadata branch using a secondary worktree or another non-destructive mechanism
 
-Handover summary format:
-
-- use a concise four-column table with `Origin`, `Local`, `Status`, and `Action(s)`
-- keep the final table shorter than `status`
-- confirm current branch state, last shipped tag, metadata branch state, metadata consistency, and final synced baseline
-
 ## Resume Workflow
 
 Trigger: `resume` / `resume please`
@@ -181,7 +195,7 @@ Behaviour:
 
 - fetch remote state first
 - render a four-column table using `Origin`, `Local`, `Status`, and `Action(s)`
-- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `publish`, `ship`, or `handover` is recommended
+- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 - never mutate the repo from `status`
 
 ## Abort Workflow
@@ -257,6 +271,53 @@ Workflow order:
 7. changelog when present
 8. tag
 9. push
+
+Preflight guard rails:
+
+- fetch origin when needed
+- stop if `HEAD` is detached
+- allow first publication from a clean unpublished branch
+- stop if the branch is behind or diverged from origin
+- stop if the working tree is dirty
+- render a release-focused four-column snapshot table before mutating anything
+
+Verify and build policy:
+
+- normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
+- use `cargo build --release` only when the user explicitly requests installation or deployment work, or when the deploy workflow requires it
+- docs/infra-only changes may skip heavyweight code gates according to `.github/TCTBP.json`, but still require editor diagnostics and docs impact assessment
+
+Versioning rules:
+
+- patch bump behaviour is controlled by `.github/TCTBP.json`
+- in this repo, docs-only and infrastructure-only ships do not bump by default
+- first SHIP on a `feature/` branch gets a minor bump instead of a patch bump
+- major bump only by explicit instruction
+- apply version changes to `Cargo.toml` before committing
+
+Tagging rules:
+
+- use plain semver tags such as `1.2.2`
+- one tag per shipped commit
+- skip tagging when no version bump occurs
+
+Docs impact rules:
+
+- `README.md`, `docs/user-guide.md`, and `PLAN.md` for user-visible changes
+- `docs/windows-installer.md`, `installer/windows/build-installer.ps1`, and `installer/windows/rust-clock.iss` for Windows packaging changes
+- `assets/rust-clock.desktop` for Linux desktop integration changes
+
+## Repo-Specific Preservation Notes
+
+When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
+
+- plain semver release tags with no `v` prefix
+- `Cargo.toml` as version source
+- `cargo build` as the default SHIP build gate
+- `cargo build --release` only for explicit deployment/install work
+- the dev harness launcher and its stale-process protections
+- Linux and Windows deployment targets and docs paths
+- Australian English conventions
 
 Preflight guard rails:
 

@@ -123,7 +123,7 @@ When behaviour changes, review the repo docs that match the change:
 
 ## TCTBP Workflow
 
-For SHIP, publish, handover, resume, deploy, status, abort, and branch transition rules, use:
+For SHIP, checkpoint, publish, handover, resume, deploy, status, abort, and branch transition rules, use:
 
 - `.github/TCTBP.json` as the authoritative machine-readable profile
 - `.github/TCTBP Agent.md` for workflow guard rails and interpretation
