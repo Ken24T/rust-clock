@@ -178,16 +178,20 @@ Key safety rules:
 
 Trigger: `resume` / `resume please`
 
-Purpose: restore the intended work branch at start of day by consulting handover metadata first, switching safely when needed, and reconciling only through non-destructive checkout and fast-forward operations.
+Purpose: restore the intended work branch at start of day by consulting handover metadata first, preserving current local unpublished work when a safe branch switch would otherwise strand it, and reconciling only through non-destructive checkout and fast-forward operations.
 
 Key safety rules:
 
 - stop if `HEAD` is detached
 - consult metadata before arbitrary branch-recency inference
 - prefer metadata over an arbitrary clean non-default branch
+- detect when switching to the handed-over branch would strand current local unpublished work
+- ask for confirmation before creating any local-only preserve step during `resume`
+- preserve dirty current-branch work with a local checkpoint before switching when that is safe
+- preserve a clean-but-ahead current branch with a local rescue branch before switching when that is safe
 - create a local tracking branch from remote when the intended branch is published but missing locally
-- allow fast-forward only when local is clean and behind
-- stop when local is ahead, diverged, or ambiguous instead of publishing during `resume`
+- allow fast-forward only when the selected branch is clean and behind
+- stop when preserve-local handling would require publication, when the selected branch is ahead or diverged, or when the state is otherwise ambiguous
 
 ## Status Workflow
 
