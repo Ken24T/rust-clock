@@ -131,6 +131,7 @@ Key rules:
 - validate the requested branch name before mutating anything when a new branch was requested
 - stop if the target branch already exists locally or on origin
 - stop if the source branch is dirty and SHIP is declined
+- if the source branch is dirty and SHIP is declined, recommend `checkpoint`, then `publish` or `handover`, before retrying `branch`
 - stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
 - fast-forward local `main` when clean and behind origin
 - ask for explicit confirmation before merging a non-default branch back into `main`
@@ -167,6 +168,7 @@ Key safety rules:
 
 - stop if `HEAD` is detached
 - preserve dirty unpublished work through a durable checkpoint when necessary
+- a recent matching standalone `checkpoint` commit may be reused instead of creating another one
 - allow fast-forward only when local is clean and behind
 - stop on divergence rather than guessing
 - never auto-merge or auto-rebase as part of reconciliation

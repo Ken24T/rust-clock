@@ -211,7 +211,7 @@ If `Include hook layer` is `NO`:
    - confirm prompt frontmatter is valid and references the installed runtime files consistently
    - confirm `.github/hooks/tctbp-safety.json` points at the installed hook script path when the hook layer is enabled
    - confirm no docs or instructions still reference omitted hook files when the hook layer is disabled
-15. Do not perform SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
+15. Do not perform checkpoint, SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
 
 ## What You Must Not Do
 
