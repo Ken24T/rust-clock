@@ -168,7 +168,7 @@ fn apply_x11_window_hints(
         &states,
     )?;
 
-    for atom in states {
+    for &atom in &states {
         let event = ClientMessageEvent::new(32, window_id, net_wm_state, [1, atom, 0, 0, 0]);
 
         conn.send_event(
@@ -180,6 +180,115 @@ fn apply_x11_window_hints(
     }
 
     conn.flush()?;
+
+    if x11_window_hints_match(
+        &conn,
+        window_id,
+        net_wm_window_type,
+        net_wm_state,
+        window_type,
+        &states,
+    )? {
+        return Ok(());
+    }
+
+    apply_xprop_window_hints(window_id, window_type_name, state_names)?;
+
+    if x11_window_hints_match(
+        &conn,
+        window_id,
+        net_wm_window_type,
+        net_wm_state,
+        window_type,
+        &states,
+    )? {
+        Ok(())
+    } else {
+        Err("Linux window hints did not stick after fallback".into())
+    }
+}
+
+fn x11_window_hints_match(
+    conn: &x11rb::rust_connection::RustConnection,
+    window_id: u32,
+    net_wm_window_type: u32,
+    net_wm_state: u32,
+    expected_window_type: u32,
+    expected_states: &[u32],
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let window_types = read_atom_list_property(conn, window_id, net_wm_window_type)?;
+    let states = read_atom_list_property(conn, window_id, net_wm_state)?;
+
+    Ok(window_types.contains(&expected_window_type)
+        && expected_states.iter().all(|state| states.contains(state)))
+}
+
+fn read_atom_list_property(
+    conn: &x11rb::rust_connection::RustConnection,
+    window_id: u32,
+    property: u32,
+) -> Result<Vec<u32>, Box<dyn std::error::Error>> {
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+
+    let reply = conn
+        .get_property(false, window_id, property, AtomEnum::ATOM, 0, u32::MAX)?
+        .reply()?;
+
+    Ok(reply
+        .value32()
+        .map(|values| values.collect())
+        .unwrap_or_default())
+}
+
+fn apply_xprop_window_hints(
+    window_id: u32,
+    window_type_name: &[u8],
+    state_names: &[&[u8]],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let window_id = format!("0x{window_id:x}");
+    let window_type_name = std::str::from_utf8(window_type_name)?;
+    let states = state_names
+        .iter()
+        .map(|state| std::str::from_utf8(state))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(",");
+
+    let window_type_status = std::process::Command::new("xprop")
+        .args([
+            "-id",
+            &window_id,
+            "-f",
+            "_NET_WM_WINDOW_TYPE",
+            "32a",
+            "-set",
+            "_NET_WM_WINDOW_TYPE",
+            window_type_name,
+        ])
+        .status()?;
+
+    if !window_type_status.success() {
+        return Err(
+            format!("xprop failed to set _NET_WM_WINDOW_TYPE: {window_type_status}").into(),
+        );
+    }
+
+    let state_status = std::process::Command::new("xprop")
+        .args([
+            "-id",
+            &window_id,
+            "-f",
+            "_NET_WM_STATE",
+            "32a",
+            "-set",
+            "_NET_WM_STATE",
+            &states,
+        ])
+        .status()?;
+
+    if !state_status.success() {
+        return Err(format!("xprop failed to set _NET_WM_STATE: {state_status}").into());
+    }
+
     Ok(())
 }
 
