@@ -49,9 +49,14 @@ impl<'a> ContextMenu<'a> {
             .size(11)
             .color(chrome.muted_text);
 
-        let header_row = row![heading, container(version).width(Fill).align_x(alignment::Horizontal::Right)]
-            .spacing(6)
-            .align_y(alignment::Vertical::Center);
+        let header_row = row![
+            heading,
+            container(version)
+                .width(Fill)
+                .align_x(alignment::Horizontal::Right)
+        ]
+        .spacing(6)
+        .align_y(alignment::Vertical::Center);
 
         let separator = container(text("").size(1))
             .width(Fill)
