@@ -315,7 +315,7 @@ Docs impact rules:
 - `docs/windows-installer.md`, `installer/windows/build-installer.ps1`, and `installer/windows/rust-clock.iss` for Windows packaging changes
 - `assets/rust-clock.desktop` for Linux desktop integration changes
 
-## Repo-Specific Preservation Notes
+## Repo-Specific Preservation Checklist
 
 When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
 
