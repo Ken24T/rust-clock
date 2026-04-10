@@ -176,9 +176,8 @@ Repo-specific deploy targets:
   - validate: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
 - `linux-user-local`
   - build: `cargo build --release`
-  - install binary: `install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock`
-  - install desktop entry: `install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop`
-  - validate: confirm both installed files exist
+  - install: `./scripts/install-linux-user-local.sh`
+  - validate: confirm the binary exists and the desktop entry resolves `Exec` to `~/.local/bin/rust-clock`
 - `windows-installer`
   - build/package: `pwsh -File .\installer\windows\build-installer.ps1`
   - expected output: versioned installer under `dist/windows/`

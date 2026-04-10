@@ -400,12 +400,12 @@
       "linux-user-local": {
         "description": "Install the release binary and desktop entry into the current user's local application paths.",
         "installCommands": [
-          "install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock",
-          "install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop"
+          "./scripts/install-linux-user-local.sh"
         ],
         "postDeployChecks": [
           "test -x ~/.local/bin/rust-clock",
-          "test -f ~/.local/share/applications/rust-clock.desktop"
+          "test -f ~/.local/share/applications/rust-clock.desktop",
+          "grep -q '^Exec=/home/.*/\\.local/bin/rust-clock$' ~/.local/share/applications/rust-clock.desktop || grep -q '^Exec='\"$HOME\"'/\\.local/bin/rust-clock$' ~/.local/share/applications/rust-clock.desktop"
         ]
       },
       "windows-installer": {

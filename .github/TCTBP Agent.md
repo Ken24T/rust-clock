@@ -250,9 +250,8 @@ Repo-specific deploy targets:
 ### `linux-user-local`
 
 - build: `cargo build --release`
-- install binary: `install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock`
-- install desktop entry: `install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop`
-- post-deploy validation: confirm both installed files exist
+- install: `./scripts/install-linux-user-local.sh`
+- post-deploy validation: confirm the binary exists and the desktop entry resolves `Exec` to `~/.local/bin/rust-clock`
 
 ### `windows-installer`
 
