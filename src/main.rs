@@ -22,6 +22,7 @@ mod tray;
 use iced::keyboard;
 use iced::widget::{canvas, operation};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
+use std::time::Instant;
 
 /// Number of early ticks during which Linux window hints are retried.
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
@@ -29,6 +30,7 @@ const STARTUP_HINT_ATTEMPTS: u8 = 20;
 const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
 /// Smooth-second animation cadence. 67 ms is approximately 15 fps.
 const SMOOTH_SECONDS_INTERVAL_MS: u64 = 67;
+const RECOVERY_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const POPUP_GAP: f32 = 18.0;
 const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
@@ -159,6 +161,7 @@ struct ClockApp {
     hover_window_content: Option<HoverWindowContent>,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
+    last_recovery_snapshot_at: Option<Instant>,
 }
 
 /// Messages produced by the application.
@@ -291,6 +294,7 @@ impl ClockApp {
             hover_window_content: None,
             tray_handle,
             tray_receiver,
+            last_recovery_snapshot_at: None,
         };
         app.sync_clock_face_active_items();
         app
@@ -713,6 +717,19 @@ impl ClockApp {
                 // Check alarms on each tick.
                 let fired = self.alarm_manager.check_and_fire();
                 self.sync_clock_face_active_items();
+                if self.alarm_manager.has_live_restartable_reminders() {
+                    let now = Instant::now();
+                    let due = self
+                        .last_recovery_snapshot_at
+                        .map_or(true, |last| now.duration_since(last) >= RECOVERY_SNAPSHOT_INTERVAL);
+
+                    if due {
+                        self.alarm_manager.save();
+                        self.last_recovery_snapshot_at = Some(now);
+                    }
+                } else {
+                    self.last_recovery_snapshot_at = None;
+                }
                 for alarm in fired {
                     fire_alarm(&alarm);
                 }
