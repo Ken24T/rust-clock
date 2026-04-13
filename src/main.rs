@@ -321,8 +321,9 @@ impl ClockApp {
             self.save_config();
         }
 
-        window::oldest()
-            .and_then(move |id| Task::batch([window::move_to(id, position), window::resize(id, size)]))
+        window::oldest().and_then(move |id| {
+            Task::batch([window::move_to(id, position), window::resize(id, size)])
+        })
     }
 
     fn apply_size_change(&mut self) -> Task<Message> {
@@ -723,7 +724,7 @@ impl ClockApp {
                     let now = Instant::now();
                     let due = self
                         .last_recovery_snapshot_at
-                        .map_or(true, |last| now.duration_since(last) >= RECOVERY_SNAPSHOT_INTERVAL);
+                        .is_none_or(|last| now.duration_since(last) >= RECOVERY_SNAPSHOT_INTERVAL);
 
                     if due {
                         self.alarm_manager.save();

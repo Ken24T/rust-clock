@@ -199,7 +199,10 @@ impl AlarmManager {
             alarm.enabled
                 && !alarm.is_paused()
                 && !alarm.is_completed()
-                && matches!(alarm.kind, AlarmKind::Timer { .. } | AlarmKind::RepeatingInterval { .. })
+                && matches!(
+                    alarm.kind,
+                    AlarmKind::Timer { .. } | AlarmKind::RepeatingInterval { .. }
+                )
         })
     }
 

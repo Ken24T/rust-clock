@@ -32,6 +32,8 @@ When the app starts, it tries to:
 - restore any saved alarms and timers
 - start a tray icon if your desktop supports one
 
+If your display layout changed since the last run, Rust Clock clamps the saved clock position back onto the nearest active monitor instead of blindly reopening at stale off-screen coordinates.
+
 ## Using The Clock
 
 The main clock window shows:
@@ -209,6 +211,8 @@ When a timer or alarm finishes, Rust Clock currently does two things:
 At the moment, the reminder window does not offer separate sound-only or notification-only choices.
 
 When you quit Rust Clock with `Ctrl+Q` or the tray `Quit` action, the app stops running rather than leaving reminders active in the background. Existing countdown timers and repeating interval timers resume from their remaining time when you start the app again. One-shot alarms that would have fired while the app was closed are marked as missed and do not fire late after restart.
+
+Rust Clock now also keeps lightweight recovery snapshots for live countdown reminders while it is running. If the app stops unexpectedly, countdown timers and repeating interval reminders can usually resume close to the last saved remaining time instead of being lost altogether.
 
 ## Tray Icon
 
