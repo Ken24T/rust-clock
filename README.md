@@ -59,6 +59,14 @@ bash ./scripts/run-dev-harness.sh
 
 That launcher stops only stale instances of this repo's `target/debug/rust-clock` binary before starting a fresh debug session. It does not touch the installed runtime in `~/.local/bin`.
 
+For a user-local install that also shows up reliably in desktop launchers, build the release binary and run:
+
+```bash
+./scripts/install-linux-user-local.sh
+```
+
+That install helper installs the desktop entry under `~/.local/share/applications` and writes absolute `Exec` and `TryExec` paths to `~/.local/bin/rust-clock`, which avoids launcher discovery issues on systems where `~/.local/bin` is not on the desktop session `PATH`.
+
 ## Windows Installer
 
 Rust Clock now includes a Windows installer definition based on Inno Setup.

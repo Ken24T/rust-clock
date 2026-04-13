@@ -27,6 +27,8 @@ use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
 /// Retry interval for Linux startup window hints.
 const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
+/// Smooth-second animation cadence. 67 ms is approximately 15 fps.
+const SMOOTH_SECONDS_INTERVAL_MS: u64 = 67;
 const POPUP_GAP: f32 = 18.0;
 const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
@@ -999,7 +1001,7 @@ impl ClockApp {
 
     fn subscription(&self) -> Subscription<Message> {
         let tick_interval = if self.config.smooth_seconds {
-            std::time::Duration::from_millis(16) // ~60 fps
+            std::time::Duration::from_millis(SMOOTH_SECONDS_INTERVAL_MS) // ~15 fps
         } else {
             std::time::Duration::from_secs(1)
         };

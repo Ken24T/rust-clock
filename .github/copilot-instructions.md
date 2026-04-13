@@ -40,6 +40,8 @@ The Rust Clock TCTBP runtime and workflow surface lives in:
 
 Keep these files aligned when the workflow or runtime entry points change.
 
+The consolidated cross-repo application prompt is expected to be discoverable through the explicit local-only trigger `reconcile-tctbp <absolute-target-repo-path>`.
+
 ## Development Commands
 
 ```bash

@@ -100,6 +100,7 @@ Attempts to:
 - stage the current non-ignored tracked and new files
 - create a clearly marked non-release local commit
 - end with a concise four-column table showing the pre-checkpoint commit, the new checkpoint commit, resulting sync state, and explicit local-only outcome
+- emit that checkpoint table as a standalone Markdown block with a blank line before and after it
 - confirm that nothing was pushed, tagged, or handed over
 
 Notes:
@@ -137,28 +138,32 @@ Notes:
 - can checkpoint dirty unpublished work before verification strands it
 - fast-forwards when behind and clean
 - stops on divergence or ambiguity
-- ends with a concise four-column table and a one-line completion summary
+- ends with a concise four-column table emitted as a standalone Markdown block with a blank line before and after it
+- adds a one-line completion summary after the table
 
 ### `resume` / `resume please`
 
 Purpose:
-Safely restore the intended work branch at the start of a session.
+Safely restore the intended work branch at the start of a session, preserving local unpublished work first when a safe branch switch would otherwise strand it.
 
 Attempts to:
 
 - fetch and inspect remote state
 - read the handover metadata branch first
 - prefer metadata over arbitrary branch-recency guesses
+- detect when switching would strand local unpublished work on the current branch
+- ask to preserve that local work locally before switching when that case is safe
 - create a local tracking branch from the intended remote branch when needed
-- fast-forward a clean branch when origin is ahead
-- stop on ambiguity, divergence, or any case that would require publication
+- fast-forward the selected clean branch when origin is ahead
+- stop on ambiguity, divergence, conflicts, or any case that would require publication
 
 Notes:
 
+- may create a local-only checkpoint or rescue branch after confirmation to preserve local work before switching
 - does not publish
 - does not update metadata
 - does not create a release
-- stops if switching branches would be destructive or if local/remote state is ambiguous
+- stops if preserve-local handling would be unsafe, if switching branches would still be destructive, or if local/remote state is ambiguous
 
 ### `deploy` / `deploy please`
 
@@ -173,9 +178,8 @@ Repo-specific deploy targets:
   - validate: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
 - `linux-user-local`
   - build: `cargo build --release`
-  - install binary: `install -Dm755 target/release/rust-clock ~/.local/bin/rust-clock`
-  - install desktop entry: `install -Dm644 assets/rust-clock.desktop ~/.local/share/applications/rust-clock.desktop`
-  - validate: confirm both installed files exist
+  - install: `./scripts/install-linux-user-local.sh`
+  - validate: confirm the binary exists and the desktop entry resolves `Exec` to `~/.local/bin/rust-clock`
 - `windows-installer`
   - build/package: `pwsh -File .\installer\windows\build-installer.ps1`
   - expected output: versioned installer under `dist/windows/`
@@ -195,6 +199,7 @@ Notes:
 
 - fetches first
 - uses the fuller four-column table: `Origin`, `Local`, `Status`, `Action(s)`
+- the first user-visible output block must be that standalone table with a blank line before and after it
 - includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 
 ### `abort`
@@ -279,6 +284,7 @@ Repo-specific docs commonly reviewed:
 - Need to sync a clean branch without release or metadata side effects: use `publish`
 - Need to stop on one machine and resume on another safely: use `handover`
 - Need to restore the last handed-over branch before starting work: use `resume`
+- If `resume` hits local unpublished work on the current machine, it should offer a local preserve step before switching
 - Need the local runtime installed or the Windows installer built: use `deploy`
 - Need a quick repo state check: use `status`
 - Need to recover from a partial workflow state: use `abort`

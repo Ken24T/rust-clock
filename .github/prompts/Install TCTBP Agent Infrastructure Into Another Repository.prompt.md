@@ -33,6 +33,8 @@ The target repository is the source of repo-specific commands, paths, deployment
 
 Fill in these values before using the prompt.
 
+Absolute paths may use Windows or POSIX syntax. Preserve the target repository's existing path style instead of rewriting it.
+
 ```text
 Source TCTBP repository path: <ABSOLUTE_CURRENT_REPOSITORY_PATH_OR_OTHER_SOURCE_REPO>
 Target repository path: <ABSOLUTE_TARGET_REPO_PATH>
@@ -211,7 +213,7 @@ If `Include hook layer` is `NO`:
    - confirm prompt frontmatter is valid and references the installed runtime files consistently
    - confirm `.github/hooks/tctbp-safety.json` points at the installed hook script path when the hook layer is enabled
    - confirm no docs or instructions still reference omitted hook files when the hook layer is disabled
-15. Do not perform SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
+15. Do not perform checkpoint, SHIP, publish, deploy, or handover in the target repo unless explicitly requested.
 
 ## What You Must Not Do
 

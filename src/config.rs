@@ -68,7 +68,7 @@ pub struct AppConfig {
     #[serde(default = "default_theme")]
     pub theme: String,
 
-    /// Enable smooth (60 fps) second hand sweep.
+    /// Enable smooth (~15 fps) second hand sweep.
     #[serde(default = "default_true")]
     pub smooth_seconds: bool,
 
