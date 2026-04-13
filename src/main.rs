@@ -308,15 +308,21 @@ impl ClockApp {
         self.sync_clock_face_active_items();
     }
 
+    fn apply_saved_main_window_layout(&mut self) -> Task<Message> {
+        let (position, size) = main_window_layout(&self.config);
+        let rounded_position = (position.x.round() as i32, position.y.round() as i32);
+
+        if self.config.position.is_some() && self.config.position != Some(rounded_position) {
+            self.config.position = Some(rounded_position);
+            self.save_config();
+        }
+
+        window::oldest()
+            .and_then(move |id| Task::batch([window::move_to(id, position), window::resize(id, size)]))
+    }
+
     fn apply_size_change(&mut self) -> Task<Message> {
-        let size = self.config.size;
-        let clamped_position = clamp_clock_position(
-            self.config
-                .position
-                .map(|(x, y)| Point::new(x as f32, y as f32))
-                .unwrap_or(Point::ORIGIN),
-            size as f32,
-        );
+        let (clamped_position, window_size) = main_window_layout(&self.config);
 
         self.config.position = Some((
             clamped_position.x.round() as i32,
@@ -327,7 +333,7 @@ impl ClockApp {
         let mut tasks = vec![window::oldest().and_then(move |id| {
             Task::batch([
                 window::move_to(id, clamped_position),
-                window::resize(id, Size::new(size as f32, size as f32)),
+                window::resize(id, window_size),
             ])
         })];
 
@@ -691,7 +697,10 @@ impl ClockApp {
                     Task::none()
                 } else {
                     self.startup_hint_attempts += 1;
-                    window::oldest().and_then(apply_startup_window_hints)
+                    Task::batch([
+                        self.apply_saved_main_window_layout(),
+                        window::oldest().and_then(apply_startup_window_hints),
+                    ])
                 }
             }
             Message::ControlWindowOpened(id) => {
@@ -726,7 +735,11 @@ impl ClockApp {
                 if Some(id) == self.control_window || Some(id) == self.hover_window {
                     Task::none()
                 } else {
-                    self.config.position = Some((point.x as i32, point.y as i32));
+                    let clamped_position = clamp_clock_position(point, self.config.size as f32);
+                    self.config.position = Some((
+                        clamped_position.x.round() as i32,
+                        clamped_position.y.round() as i32,
+                    ));
                     self.save_config();
 
                     if let Some(hover_id) = self.hover_window {
@@ -1075,6 +1088,11 @@ impl ClockApp {
 fn focus_clock_window() -> Task<Message> {
     window::oldest()
         .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
+}
+
+fn main_window_layout(config: &AppConfig) -> (Point, Size) {
+    let size = config.size as f32;
+    (main_window_position(config), Size::new(size, size))
 }
 
 fn main_window_position(config: &AppConfig) -> Point {

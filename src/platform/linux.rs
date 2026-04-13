@@ -16,9 +16,30 @@ pub fn capabilities() -> PlatformCapabilities {
 
 pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
     use x11rb::connection::Connection;
+    use x11rb::protocol::randr::ConnectionExt as _;
 
     let (conn, screen_num) = x11rb::rust_connection::RustConnection::connect(None).ok()?;
     let screen = conn.setup().roots.get(screen_num)?;
+
+    if let Ok(cookie) = conn.randr_get_monitors(screen.root, true) {
+        if let Ok(reply) = cookie.reply() {
+            let monitors = reply
+                .monitors
+                .iter()
+                .filter(|monitor| monitor.width > 0 && monitor.height > 0)
+                .map(|monitor| WorkArea {
+                    x: monitor.x as f32,
+                    y: monitor.y as f32,
+                    width: monitor.width as f32,
+                    height: monitor.height as f32,
+                })
+                .collect::<Vec<_>>();
+
+            if let Some(work_area) = select_work_area(&monitors, _x, _y) {
+                return Some(work_area);
+            }
+        }
+    }
 
     Some(WorkArea {
         x: 0.0,
@@ -26,6 +47,43 @@ pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
         width: screen.width_in_pixels as f32,
         height: screen.height_in_pixels as f32,
     })
+}
+
+fn select_work_area(work_areas: &[WorkArea], x: f32, y: f32) -> Option<WorkArea> {
+    work_areas
+        .iter()
+        .copied()
+        .find(|area| point_in_work_area(*area, x, y))
+        .or_else(|| {
+            work_areas.iter().copied().min_by(|left, right| {
+                distance_sq_to_work_area(*left, x, y)
+                    .partial_cmp(&distance_sq_to_work_area(*right, x, y))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        })
+}
+
+fn point_in_work_area(area: WorkArea, x: f32, y: f32) -> bool {
+    x >= area.x && x <= area.x + area.width && y >= area.y && y <= area.y + area.height
+}
+
+fn distance_sq_to_work_area(area: WorkArea, x: f32, y: f32) -> f32 {
+    let dx = if x < area.x {
+        area.x - x
+    } else if x > area.x + area.width {
+        x - (area.x + area.width)
+    } else {
+        0.0
+    };
+    let dy = if y < area.y {
+        area.y - y
+    } else if y > area.y + area.height {
+        y - (area.y + area.height)
+    } else {
+        0.0
+    };
+
+    dx * dx + dy * dy
 }
 
 pub fn send_notification(summary: &str, body: &str) {
@@ -290,6 +348,64 @@ fn apply_xprop_window_hints(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{distance_sq_to_work_area, point_in_work_area, select_work_area};
+    use crate::platform::WorkArea;
+
+    #[test]
+    fn selects_monitor_containing_point() {
+        let work_areas = [
+            WorkArea {
+                x: 0.0,
+                y: 922.0,
+                width: 3840.0,
+                height: 2160.0,
+            },
+            WorkArea {
+                x: 3840.0,
+                y: 384.0,
+                width: 6144.0,
+                height: 3456.0,
+            },
+        ];
+
+        let selected =
+            select_work_area(&work_areas, 5000.0, 1000.0).expect("monitor should resolve");
+        assert_eq!(selected, work_areas[1]);
+    }
+
+    #[test]
+    fn selects_nearest_monitor_when_point_is_in_gap() {
+        let work_areas = [
+            WorkArea {
+                x: 0.0,
+                y: 922.0,
+                width: 3840.0,
+                height: 2160.0,
+            },
+            WorkArea {
+                x: 3840.0,
+                y: 384.0,
+                width: 6144.0,
+                height: 3456.0,
+            },
+        ];
+
+        let gap_point = (200.0, 100.0);
+        assert!(!point_in_work_area(work_areas[0], gap_point.0, gap_point.1));
+        assert!(!point_in_work_area(work_areas[1], gap_point.0, gap_point.1));
+
+        let selected = select_work_area(&work_areas, gap_point.0, gap_point.1)
+            .expect("nearest monitor should resolve");
+        assert_eq!(selected, work_areas[0]);
+        assert!(
+            distance_sq_to_work_area(work_areas[0], gap_point.0, gap_point.1)
+                < distance_sq_to_work_area(work_areas[1], gap_point.0, gap_point.1)
+        );
+    }
 }
 
 fn intern_atom(
