@@ -10,6 +10,7 @@ This folder holds supporting documentation for Rust Clock.
 - [platform-port-plan.md](platform-port-plan.md): phased porting plan, guard rails, capability matrix, and validation checklists for safe Windows/Linux work
 - [platform-boundary-design.md](platform-boundary-design.md): Phase 1 design for platform service boundaries, ownership, fallbacks, and extraction order
 - [clock-face-visibility-plan.md](clock-face-visibility-plan.md): phased plan for showing active alarms and timers directly on the clock face
+- [code-risk-review-2026-04-13.md](code-risk-review-2026-04-13.md): read-only risk review and remediation plan for the `chore/bug-fixes-2` branch
 
 ## Structure
 
