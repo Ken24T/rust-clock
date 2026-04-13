@@ -24,6 +24,7 @@ Depending on the detected or requested state, the target repository should gain 
 - aligned Markdown workflow guidance
 - a single reusable TCTBP application prompt
 - optional runtime hook enforcement for risky git commands
+- an ignore rule that keeps local TCTBP file-backup artefacts out of normal commits
 
 The current repository is the source of generic workflow logic.
 The target repository is the source of repo-specific commands, paths, deployment details, and intentional local deviations.
@@ -31,6 +32,8 @@ The target repository is the source of repo-specific commands, paths, deployment
 ## Required Inputs
 
 Fill in these values before using the prompt.
+
+Absolute paths may use Windows or POSIX syntax. Preserve the target repository's existing path style instead of rewriting it.
 
 ```text
 Source TCTBP repository path: <ABSOLUTE_CURRENT_REPOSITORY_PATH_OR_OTHER_SOURCE_REPO>

@@ -100,6 +100,7 @@ Attempts to:
 - stage the current non-ignored tracked and new files
 - create a clearly marked non-release local commit
 - end with a concise four-column table showing the pre-checkpoint commit, the new checkpoint commit, resulting sync state, and explicit local-only outcome
+- emit that checkpoint table as a standalone Markdown block with a blank line before and after it
 - confirm that nothing was pushed, tagged, or handed over
 
 Notes:
@@ -137,12 +138,13 @@ Notes:
 - can checkpoint dirty unpublished work before verification strands it
 - fast-forwards when behind and clean
 - stops on divergence or ambiguity
-- ends with a concise four-column table and a one-line completion summary
+- ends with a concise four-column table emitted as a standalone Markdown block with a blank line before and after it
+- adds a one-line completion summary after the table
 
 ### `resume` / `resume please`
 
 Purpose:
-Safely restore the intended work branch at the start of a session.
+Safely restore the intended work branch at the start of a session, preserving local unpublished work first when a safe branch switch would otherwise strand it.
 
 Attempts to:
 
@@ -195,6 +197,7 @@ Notes:
 
 - fetches first
 - uses the fuller four-column table: `Origin`, `Local`, `Status`, `Action(s)`
+- the first user-visible output block must be that standalone table with a blank line before and after it
 - includes current branch, default branch, working tree, version source, tag state, ahead/behind state, metadata relevance, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
 
 ### `abort`
