@@ -348,6 +348,8 @@ impl ScheduleWeekday {
     }
 }
 
+const MAX_RECURRENCE_LOOKAHEAD_DAYS: i64 = 400;
+
 /// Local calendar recurrence rules for repeating alarms/events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -381,7 +383,7 @@ impl RecurrenceRule {
             | Self::SelectedWeekdays { time, .. } => *time,
         };
 
-        for offset in 0..=400 {
+        for offset in 0..=MAX_RECURRENCE_LOOKAHEAD_DAYS {
             let date = after.date_naive() + Duration::days(offset);
             if !self.matches_date(date) {
                 continue;
@@ -1326,6 +1328,16 @@ mod tests {
         assert_eq!(next.weekday(), chrono::Weekday::Mon);
         assert_eq!(next.time().hour(), 9);
         assert_eq!(next.time().minute(), 0);
+    }
+
+    #[test]
+    fn selected_weekdays_schedule_without_days_has_no_occurrence() {
+        let rule = RecurrenceRule::SelectedWeekdays {
+            weekdays: Vec::new(),
+            time: NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"),
+        };
+
+        assert!(rule.next_after(Local::now()).is_none());
     }
 
     #[test]

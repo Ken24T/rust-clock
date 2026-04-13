@@ -374,6 +374,10 @@ impl ClockApp {
     fn save_config(&self) {
         if let Err(e) = self.config.save() {
             eprintln!("Failed to save config: {e}");
+            platform::send_notification(
+                "Rust Clock could not save settings",
+                &format!("Settings were not written to disk: {e}"),
+            );
         }
     }
 
@@ -424,13 +428,8 @@ impl ClockApp {
             self.hover_window_content = Some(content);
             Task::batch([window::move_to(id, position), window::resize(id, size)])
         } else {
+            let (id, open_task) = window::open(hover_window_settings(&content, &self.config));
             self.hover_window_content = Some(content);
-            let (id, open_task) = window::open(hover_window_settings(
-                self.hover_window_content
-                    .as_ref()
-                    .expect("hover content should exist before opening window"),
-                &self.config,
-            ));
             self.hover_window = Some(id);
             open_task.map(Message::HoverWindowOpened)
         }
@@ -661,6 +660,9 @@ impl ClockApp {
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         self.tray_receiver = None;
+                        if let Some(tray_handle) = self.tray_handle.take() {
+                            tray_handle.shutdown();
+                        }
                         break;
                     }
                 }
