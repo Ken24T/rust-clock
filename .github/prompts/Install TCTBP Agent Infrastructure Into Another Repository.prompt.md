@@ -33,6 +33,8 @@ The target repository is the source of repo-specific commands, paths, deployment
 
 Fill in these values before using the prompt.
 
+Absolute paths may use Windows or POSIX syntax. Preserve the target repository's existing path style instead of rewriting it.
+
 ```text
 Source TCTBP repository path: <ABSOLUTE_CURRENT_REPOSITORY_PATH_OR_OTHER_SOURCE_REPO>
 Target repository path: <ABSOLUTE_TARGET_REPO_PATH>
