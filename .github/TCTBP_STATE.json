@@ -1,7 +1,7 @@
 {
-  "branch": "gnome/ui-ux-improvements",
-  "commit": "262a182c25ef1e84f9401f8c7d9c9fdaa25544a2",
-  "updatedAt": "2026-04-14T03:32:57Z",
+  "branch": "chore/apply-tctbp",
+  "commit": "857544cb4607853ba24d5db96e438b3637879fdb",
+  "updatedAt": "2026-04-14T05:35:48Z",
   "version": "1.5.1",
   "tag": "1.5.1"
 }
