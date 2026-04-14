@@ -1,27 +1,78 @@
+use std::sync::OnceLock;
+
 use iced::{window, Task};
+use wayland_client::{
+    globals::{registry_queue_init, GlobalListContents},
+    protocol::wl_registry,
+    Connection, Dispatch, QueueHandle,
+};
 
 use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
 use super::{PlatformCapabilities, WorkArea};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WaylandSupport {
+    running: bool,
+    layer_shell: bool,
+}
+
+#[derive(Debug, Default)]
+struct WaylandRegistryState;
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandRegistryState {
+    fn event(
+        _state: &mut Self,
+        _proxy: &wl_registry::WlRegistry,
+        _event: wl_registry::Event,
+        _data: &GlobalListContents,
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+    }
+}
+
 pub fn capabilities() -> PlatformCapabilities {
-    let wayland_session = is_wayland_session();
+    let wayland_support = wayland_support();
+    let wayland_session = wayland_support.running;
+    let layer_shell_supported = wayland_support.layer_shell;
 
     PlatformCapabilities {
         system_tray: true,
         notifications: true,
         desktop_window_hints: !wayland_session,
-        sticky_workspace: !wayland_session,
-        skip_taskbar: !wayland_session,
-        tray_only_main_window: wayland_session,
+        sticky_workspace: !wayland_session || layer_shell_supported,
+        skip_taskbar: !wayland_session || layer_shell_supported,
+        tray_only_main_window: wayland_session && !layer_shell_supported,
+        layer_shell_main_window: layer_shell_supported,
+        detached_hover_window: !layer_shell_supported,
     }
 }
 
 fn is_wayland_session() -> bool {
-    is_wayland_session_from_env(
+    wayland_support().running
+}
+
+fn wayland_support() -> WaylandSupport {
+    static SUPPORT: OnceLock<WaylandSupport> = OnceLock::new();
+
+    *SUPPORT.get_or_init(detect_wayland_support)
+}
+
+fn detect_wayland_support() -> WaylandSupport {
+    let running = is_wayland_session_from_env(
         std::env::var_os("XDG_SESSION_TYPE").as_deref(),
         std::env::var_os("WAYLAND_DISPLAY").as_deref(),
-    )
+    );
+
+    let layer_shell = running
+        && query_wayland_global_names()
+            .is_some_and(|globals| global_names_include_layer_shell(&globals));
+
+    WaylandSupport {
+        running,
+        layer_shell,
+    }
 }
 
 fn is_wayland_session_from_env(
@@ -34,7 +85,34 @@ fn is_wayland_session_from_env(
         || wayland_display.is_some()
 }
 
+fn query_wayland_global_names() -> Option<Vec<String>> {
+    let connection = Connection::connect_to_env().ok()?;
+    let (globals, _queue) = registry_queue_init::<WaylandRegistryState>(&connection).ok()?;
+
+    Some(
+        globals
+            .contents()
+            .clone_list()
+            .into_iter()
+            .map(|global| global.interface)
+            .collect(),
+    )
+}
+
+fn global_names_include_layer_shell(globals: &[String]) -> bool {
+    globals.iter().any(|interface| {
+        matches!(
+            interface.as_str(),
+            "zwlr_layer_shell_v1" | "ext_layer_shell_v1"
+        )
+    })
+}
+
 pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
+    if is_wayland_session() {
+        return None;
+    }
+
     use x11rb::connection::Connection;
     use x11rb::protocol::randr::ConnectionExt as _;
 
@@ -373,7 +451,8 @@ fn apply_xprop_window_hints(
 #[cfg(test)]
 mod tests {
     use super::{
-        distance_sq_to_work_area, is_wayland_session_from_env, point_in_work_area, select_work_area,
+        distance_sq_to_work_area, global_names_include_layer_shell,
+        is_wayland_session_from_env, point_in_work_area, select_work_area,
     };
     use crate::platform::WorkArea;
 
@@ -451,6 +530,30 @@ mod tests {
             Some(std::ffi::OsStr::new("x11")),
             None,
         ));
+    }
+
+    #[test]
+    fn layer_shell_detection_accepts_wlr_protocol_name() {
+        assert!(global_names_include_layer_shell(&[
+            "wl_compositor".to_string(),
+            "zwlr_layer_shell_v1".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn layer_shell_detection_accepts_ext_protocol_name() {
+        assert!(global_names_include_layer_shell(&[
+            "wl_compositor".to_string(),
+            "ext_layer_shell_v1".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn layer_shell_detection_rejects_missing_protocol() {
+        assert!(!global_names_include_layer_shell(&[
+            "wl_compositor".to_string(),
+            "wl_subcompositor".to_string(),
+        ]));
     }
 }
 

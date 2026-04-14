@@ -25,6 +25,7 @@ pub struct ClockFace {
     smooth_seconds: bool,
     show_date: bool,
     show_seconds: bool,
+    show_inline_hover_detail: bool,
     active_items: Vec<FaceActiveItem>,
     cache: Cache,
 }
@@ -36,6 +37,7 @@ impl ClockFace {
         smooth_seconds: bool,
         show_date: bool,
         show_seconds: bool,
+        show_inline_hover_detail: bool,
     ) -> Self {
         let now = chrono::Local::now();
         Self {
@@ -45,6 +47,7 @@ impl ClockFace {
             smooth_seconds,
             show_date,
             show_seconds,
+            show_inline_hover_detail,
             active_items: Vec::new(),
             cache: Cache::new(),
         }
@@ -130,7 +133,7 @@ impl canvas::Program<Message> for ClockFace {
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                Some(Action::publish(Message::StartDrag))
+                Some(Action::publish(Message::StartDrag(cursor_pos)))
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
                 Some(Action::publish(Message::ToggleContextMenu))
@@ -141,7 +144,7 @@ impl canvas::Program<Message> for ClockFace {
 
     fn draw(
         &self,
-        _state: &ClockFaceState,
+        state: &ClockFaceState,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -158,7 +161,14 @@ impl canvas::Program<Message> for ClockFace {
         let mut overlay = canvas::Frame::new(renderer, bounds.size());
         let centre = Point::new(bounds.width / 2.0, bounds.height / 2.0);
         let radius = bounds.width.min(bounds.height) / 2.0 * 0.95;
-        self.draw_overlay(&mut overlay, centre, radius, None);
+        self.draw_overlay(
+            &mut overlay,
+            centre,
+            radius,
+            self.show_inline_hover_detail
+                .then_some(state.hovered_target)
+                .flatten(),
+        );
 
         vec![clock, overlay.into_geometry()]
     }
@@ -190,7 +200,7 @@ mod tests {
 
     #[test]
     fn set_active_items_replaces_projection() {
-        let mut face = ClockFace::new(ThemeConfig::default(), false, true, true);
+        let mut face = ClockFace::new(ThemeConfig::default(), false, true, true, false);
         let first = Alarm::new("Tea", AlarmKind::from_now(60), AlertAction::Both)
             .face_active_item()
             .expect("active alarm should project onto the clock face");

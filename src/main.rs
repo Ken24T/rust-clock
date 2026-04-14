@@ -21,8 +21,20 @@ mod tray;
 
 use iced::keyboard;
 use iced::widget::{canvas, operation};
-use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
+use iced::{event, mouse, window, Color, Element, Fill, Point, Size, Subscription, Task};
 use std::time::Instant;
+
+#[cfg(target_os = "linux")]
+use iced_exwlshell::actions::IcedXdgWindowSettings;
+#[cfg(target_os = "linux")]
+use iced_exwlshell::reexport::{
+    Anchor as WaylandAnchor, KeyboardInteractivity, Layer as WaylandLayer,
+    NewLayerShellSettings, WlShellType,
+};
+#[cfg(target_os = "linux")]
+use iced_exwlshell::settings::{
+    LayerShellSettings as WaylandLayerShellSettings, Settings as WaylandSettings,
+};
 
 /// Number of early ticks during which Linux window hints are retried.
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
@@ -45,8 +57,20 @@ use context_menu::ContextMenu;
 use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
 use theme::window_chrome;
 
-pub fn main() -> iced::Result {
+type AppResult = Result<(), Box<dyn std::error::Error>>;
+
+pub fn main() -> AppResult {
     let config = AppConfig::load();
+
+    #[cfg(target_os = "linux")]
+    if platform::capabilities().layer_shell_main_window {
+        return run_wayland_daemon(config);
+    }
+
+    run_standard_daemon(config)
+}
+
+fn run_standard_daemon(config: AppConfig) -> AppResult {
     iced::daemon(
         move || {
             let mut app = ClockApp::new(config.clone());
@@ -66,6 +90,25 @@ pub fn main() -> iced::Result {
     .theme(clock_theme)
     .antialiasing(true)
     .run()
+    .map_err(Into::into)
+}
+
+#[cfg(target_os = "linux")]
+fn run_wayland_daemon(config: AppConfig) -> AppResult {
+    let boot_config = config.clone();
+
+    iced_exwlshell::daemon(
+        move || (ClockApp::new(boot_config.clone()), Task::none()),
+        wayland_namespace,
+        ClockApp::update,
+        ClockApp::view,
+    )
+    .title(wayland_window_title)
+    .subscription(ClockApp::subscription)
+    .theme(clock_theme)
+    .settings(wayland_daemon_settings(&config))
+    .run()
+    .map_err(Into::into)
 }
 
 fn main_window_settings(config: &AppConfig) -> window::Settings {
@@ -144,10 +187,24 @@ fn window_title(app: &ClockApp, window: window::Id) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn wayland_window_title(app: &ClockApp, window: window::Id) -> Option<String> {
+    if Some(window) == app.control_window || Some(window) == app.hover_window {
+        Some(window_title(app, window))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlWindowContent {
     Menu,
     AlarmPanel,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WaylandDragState {
+    last_cursor_position: Point,
 }
 
 /// Top-level application state.
@@ -164,12 +221,15 @@ struct ClockApp {
     hover_window: Option<window::Id>,
     hover_target: Option<OverlayHitTarget>,
     hover_window_content: Option<HoverWindowContent>,
+    drag_state: Option<WaylandDragState>,
+    warned_windowed_wayland_fallback: bool,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
     last_recovery_snapshot_at: Option<Instant>,
 }
 
 /// Messages produced by the application.
+#[cfg_attr(target_os = "linux", iced_exwlshell::to_exwlshell_message)]
 #[derive(Debug, Clone)]
 enum Message {
     /// Fired periodically to update the clock hands.
@@ -184,8 +244,10 @@ enum Message {
     NoOp,
     /// Poll pending tray actions.
     PollTrayCommands,
-    /// Left-click: initiate OS-level window drag.
-    StartDrag,
+    /// Low-level UI event stream used for Wayland layer-shell drag tracking.
+    UiEvent(iced::Event),
+    /// Left-click: initiate main-window dragging.
+    StartDrag(Point),
     /// Hover detail changed and may need a detached reminder window update.
     HoverWindowChanged(Option<OverlayHitTarget>),
     /// Window moved to a new position — save it.
@@ -270,6 +332,7 @@ impl ClockApp {
     fn new(config: AppConfig) -> Self {
         let theme = config.resolved_theme();
         let capabilities = platform::capabilities();
+        let inline_hover_detail = !capabilities.detached_hover_window;
         let alarm_manager = AlarmManager::load();
         let (tray_handle, tray_receiver) = if capabilities.system_tray {
             match start_system_tray() {
@@ -286,6 +349,7 @@ impl ClockApp {
                 config.smooth_seconds,
                 config.show_date,
                 config.show_seconds,
+                inline_hover_detail,
             ),
             config,
             capabilities,
@@ -298,6 +362,8 @@ impl ClockApp {
             hover_window: None,
             hover_target: None,
             hover_window_content: None,
+            drag_state: None,
+            warned_windowed_wayland_fallback: false,
             tray_handle,
             tray_receiver,
             last_recovery_snapshot_at: None,
@@ -306,12 +372,33 @@ impl ClockApp {
         app
     }
 
+    fn uses_layer_shell_main_window(&self) -> bool {
+        self.capabilities.layer_shell_main_window
+    }
+
+    fn is_main_canvas_window(&self, window: window::Id) -> bool {
+        Some(window) == self.main_window
+            || (self.uses_layer_shell_main_window()
+                && self.main_window.is_none()
+                && self.control_window.is_none()
+                && self.hover_window.is_none())
+    }
+
     fn starts_tray_only(&self) -> bool {
         self.capabilities.tray_only_main_window && self.tray_handle.is_some()
     }
 
+    fn uses_windowed_wayland_fallback(&self) -> bool {
+        self.capabilities.tray_only_main_window && !self.capabilities.layer_shell_main_window
+    }
+
     fn open_main_window(&mut self, focus: bool) -> Task<Message> {
         if let Some(id) = self.main_window {
+            if self.uses_layer_shell_main_window() {
+                let _ = focus;
+                return Task::none();
+            }
+
             let mut tasks = vec![window::minimize(id, false)];
 
             if focus {
@@ -319,6 +406,19 @@ impl ClockApp {
             }
 
             return Task::batch(tasks);
+        }
+
+        self.drag_state = None;
+
+        if self.uses_layer_shell_main_window() {
+            #[cfg(target_os = "linux")]
+            {
+                let (id, open_task) = wayland_open_main_window(&self.config);
+                self.main_window = Some(id);
+                self.startup_hint_attempts = 0;
+
+                return open_task;
+            }
         }
 
         let (id, open_task) = window::open(main_window_settings(&self.config));
@@ -335,7 +435,8 @@ impl ClockApp {
     }
 
     fn keeps_running_without_main_window(&self) -> bool {
-        self.capabilities.tray_only_main_window && self.tray_handle.is_some()
+        (self.capabilities.tray_only_main_window || self.uses_layer_shell_main_window())
+            && self.tray_handle.is_some()
     }
 
     /// Apply the current config to the live clock face.
@@ -346,28 +447,38 @@ impl ClockApp {
             self.config.smooth_seconds,
             self.config.show_date,
             self.config.show_seconds,
+            !self.capabilities.detached_hover_window,
         );
         self.sync_clock_face_active_items();
     }
 
-    fn apply_saved_main_window_layout(&mut self) -> Task<Message> {
+    fn sync_main_window_layout(&self) -> Task<Message> {
+        let Some(id) = self.main_window else {
+            return Task::none();
+        };
+
+        #[cfg(target_os = "linux")]
+        if self.uses_layer_shell_main_window() {
+            return wayland_main_window_layout_task(id, &self.config);
+        }
+
         let (position, size) = main_window_layout(&self.config);
+        Task::batch([window::move_to(id, position), window::resize(id, size)])
+    }
+
+    fn apply_saved_main_window_layout(&mut self) -> Task<Message> {
+        let (position, _) = main_window_layout(&self.config);
         let rounded_position = (position.x.round() as i32, position.y.round() as i32);
 
         if self.config.position.is_some() && self.config.position != Some(rounded_position) {
             self.config.position = Some(rounded_position);
             self.save_config();
         }
-
-        if let Some(id) = self.main_window {
-            Task::batch([window::move_to(id, position), window::resize(id, size)])
-        } else {
-            Task::none()
-        }
+        self.sync_main_window_layout()
     }
 
     fn apply_size_change(&mut self) -> Task<Message> {
-        let (clamped_position, window_size) = main_window_layout(&self.config);
+        let (clamped_position, _) = main_window_layout(&self.config);
 
         self.config.position = Some((
             clamped_position.x.round() as i32,
@@ -377,32 +488,33 @@ impl ClockApp {
 
         let mut tasks = Vec::new();
 
-        if let Some(id) = self.main_window {
-            tasks.push(Task::batch([
-                window::move_to(id, clamped_position),
-                window::resize(id, window_size),
-            ]));
+        if self.main_window.is_some() {
+            tasks.push(self.sync_main_window_layout());
         }
 
-        if let (Some(id), Some(content)) = (self.control_window, self.control_window_content) {
-            tasks.push(window::move_to(
-                id,
-                control_window_position(content, &self.config),
-            ));
+        if !self.uses_layer_shell_main_window() {
+            if let (Some(id), Some(content)) = (self.control_window, self.control_window_content) {
+                tasks.push(window::move_to(
+                    id,
+                    control_window_position(content, &self.config),
+                ));
+            }
         }
 
-        if self.hover_target.is_some() {
+        if self.capabilities.detached_hover_window && self.hover_target.is_some() {
             tasks.push(self.update_hover_window(self.hover_target));
-        } else if let Some(id) = self.hover_window {
+        } else if self.capabilities.detached_hover_window {
             let popup_size = self
                 .hover_window_content
                 .as_ref()
                 .map(hover_window_size)
                 .unwrap_or(Size::new(260.0, 140.0));
-            tasks.push(window::move_to(
-                id,
-                hover_window_position(&self.config, popup_size),
-            ));
+            if let Some(id) = self.hover_window {
+                tasks.push(window::move_to(
+                    id,
+                    hover_window_position(&self.config, popup_size),
+                ));
+            }
         }
 
         Task::batch(tasks)
@@ -427,6 +539,10 @@ impl ClockApp {
     fn open_control_window(&mut self, content: ControlWindowContent) -> Task<Message> {
         if self.control_window_content == Some(content) {
             if let Some(id) = self.control_window {
+                if self.uses_layer_shell_main_window() {
+                    return Task::none();
+                }
+
                 return window::gain_focus(id);
             }
         }
@@ -435,6 +551,19 @@ impl ClockApp {
 
         if let Some(id) = self.control_window.take() {
             tasks.push(window::close(id));
+        }
+
+        if self.uses_layer_shell_main_window() {
+            #[cfg(target_os = "linux")]
+            {
+                let (id, open_task) = wayland_open_base_window(control_window_size(content));
+
+                self.control_window = Some(id);
+                self.control_window_content = Some(content);
+                tasks.push(open_task);
+
+                return Task::batch(tasks);
+            }
         }
 
         let (id, open_task) = window::open(control_window_settings(content, &self.config));
@@ -456,6 +585,16 @@ impl ClockApp {
 
     fn update_hover_window(&mut self, target: Option<OverlayHitTarget>) -> Task<Message> {
         self.hover_target = target;
+
+        if !self.capabilities.detached_hover_window {
+            self.hover_window_content = None;
+
+            if let Some(id) = self.hover_window {
+                return window::close(id);
+            }
+
+            return Task::none();
+        }
 
         let Some(content) = self
             .clock_face
@@ -479,10 +618,65 @@ impl ClockApp {
     }
 
     fn close_hover_window(&mut self) -> Task<Message> {
+        if !self.capabilities.detached_hover_window {
+            self.hover_window_content = None;
+
+            if let Some(id) = self.hover_window {
+                return window::close(id);
+            }
+
+            return Task::none();
+        }
+
         if let Some(id) = self.hover_window {
             window::close(id)
         } else {
             Task::none()
+        }
+    }
+
+    fn handle_ui_event(&mut self, event: iced::Event) -> Task<Message> {
+        if !self.uses_layer_shell_main_window() {
+            return Task::none();
+        }
+
+        match event {
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                let Some(drag_state) = self.drag_state.as_mut() else {
+                    return Task::none();
+                };
+
+                let delta_x = position.x - drag_state.last_cursor_position.x;
+                let delta_y = position.y - drag_state.last_cursor_position.y;
+                drag_state.last_cursor_position = position;
+
+                if delta_x.abs() < f32::EPSILON && delta_y.abs() < f32::EPSILON {
+                    return Task::none();
+                }
+
+                let current_anchor = self
+                    .config
+                    .position
+                    .map(|(x, y)| Point::new(x as f32, y as f32))
+                    .unwrap_or_else(|| main_window_position(&self.config));
+                let clamped_position = clamp_clock_position(
+                    Point::new(current_anchor.x + delta_x, current_anchor.y + delta_y),
+                    self.config.size as f32,
+                );
+
+                self.config.position = Some((
+                    clamped_position.x.round() as i32,
+                    clamped_position.y.round() as i32,
+                ));
+                self.save_config();
+
+                self.sync_main_window_layout()
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                self.drag_state = None;
+                Task::none()
+            }
+            _ => Task::none(),
         }
     }
 
@@ -691,6 +885,18 @@ impl ClockApp {
         self.open_control_window(ControlWindowContent::AlarmPanel)
     }
 
+    fn warn_windowed_wayland_fallback_if_needed(&mut self) {
+        if self.warned_windowed_wayland_fallback || !self.uses_windowed_wayland_fallback() {
+            return;
+        }
+
+        self.warned_windowed_wayland_fallback = true;
+        platform::send_notification(
+            "Rust Clock Wayland fallback",
+            "This Ubuntu GNOME Wayland session does not advertise layer-shell support. Showing the clock opens a normal app window, so the taskbar icon is expected here.",
+        );
+    }
+
     fn poll_tray_commands(&mut self) -> Task<Message> {
         let mut pending_commands = Vec::new();
         let mut tasks = Vec::new();
@@ -714,7 +920,10 @@ impl ClockApp {
 
         for command in pending_commands {
             match command {
-                TrayCommand::FocusClock => tasks.push(self.open_main_window(true)),
+                TrayCommand::FocusClock => {
+                    self.warn_windowed_wayland_fallback_if_needed();
+                    tasks.push(self.open_main_window(true));
+                }
                 TrayCommand::ShowAlarmPanel => {
                     tasks.push(self.show_alarm_panel_from_tray());
                 }
@@ -742,6 +951,10 @@ impl ClockApp {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ApplyStartupHints => {
+                if self.uses_layer_shell_main_window() {
+                    return Task::none();
+                }
+
                 let layout = self.apply_saved_main_window_layout();
 
                 if !self.capabilities.desktop_window_hints
@@ -789,8 +1002,14 @@ impl ClockApp {
                 }
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
-            Message::StartDrag => {
-                let drag = if let Some(id) = self.main_window {
+            Message::UiEvent(event) => self.handle_ui_event(event),
+            Message::StartDrag(point) => {
+                let drag = if self.uses_layer_shell_main_window() {
+                    self.drag_state = Some(WaylandDragState {
+                        last_cursor_position: point,
+                    });
+                    Task::none()
+                } else if let Some(id) = self.main_window {
                     window::drag(id)
                 } else {
                     Task::none()
@@ -802,6 +1021,10 @@ impl ClockApp {
             Message::HoverWindowChanged(content) => self.update_hover_window(content),
             Message::WindowMoved(id, point) => {
                 if Some(id) == self.main_window {
+                    if self.uses_layer_shell_main_window() {
+                        return Task::none();
+                    }
+
                     let clamped_position = clamp_clock_position(point, self.config.size as f32);
                     self.config.position = Some((
                         clamped_position.x.round() as i32,
@@ -850,6 +1073,7 @@ impl ClockApp {
                     Task::none()
                 } else if Some(id) == self.main_window {
                     self.main_window = None;
+                    self.drag_state = None;
                     Task::none()
                 } else {
                     Task::none()
@@ -1057,6 +1281,7 @@ impl ClockApp {
                 if let Some(tray_handle) = self.tray_handle.take() {
                     tray_handle.shutdown();
                 }
+                self.drag_state = None;
                 self.control_window = None;
                 self.hover_window = None;
                 self.control_window_content = None;
@@ -1065,6 +1290,19 @@ impl ClockApp {
 
                 iced::exit()
             }
+            #[cfg(target_os = "linux")]
+            Message::NewShell(info) => {
+                if self.uses_layer_shell_main_window()
+                    && matches!(info.shell, WlShellType::LayerShell)
+                {
+                    self.main_window = Some(info.id);
+                    self.sync_main_window_layout()
+                } else {
+                    Task::none()
+                }
+            }
+            #[cfg(target_os = "linux")]
+            _ => Task::none(),
         }
     }
 
@@ -1087,7 +1325,7 @@ impl ClockApp {
                 }
                 None => iced::widget::text("").into(),
             }
-        } else if Some(window) == self.main_window {
+        } else if self.is_main_canvas_window(window) {
             canvas(&self.clock_face).width(Fill).height(Fill).into()
         } else {
             iced::widget::text("").into()
@@ -1115,6 +1353,11 @@ impl ClockApp {
         let tray_events = if self.capabilities.system_tray && self.tray_receiver.is_some() {
             iced::time::every(std::time::Duration::from_millis(150))
                 .map(|_| Message::PollTrayCommands)
+        } else {
+            Subscription::none()
+        };
+        let ui_events = if self.uses_layer_shell_main_window() {
+            event::listen().map(Message::UiEvent)
         } else {
             Subscription::none()
         };
@@ -1160,6 +1403,7 @@ impl ClockApp {
             tick,
             startup_hint_retries,
             tray_events,
+            ui_events,
             window_events,
             keyboard_events,
         ])
@@ -1327,6 +1571,81 @@ fn app_window_icon() -> Option<window::Icon> {
         app_icon::CLOCK_FACE_ICON_SIZE,
     )
     .ok()
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_namespace() -> String {
+    "rust-clock".to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_daemon_settings(config: &AppConfig) -> WaylandSettings {
+    WaylandSettings {
+        id: Some("rust-clock".to_string()),
+        antialiasing: true,
+        layer_settings: WaylandLayerShellSettings {
+            anchor: wayland_main_window_anchor(),
+            layer: WaylandLayer::Bottom,
+            exclusive_zone: 0,
+            size: Some(wayland_main_window_size(config)),
+            margin: wayland_main_window_margin(config),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_open_main_window(config: &AppConfig) -> (window::Id, Task<Message>) {
+    Message::layershell_open(NewLayerShellSettings {
+        anchor: wayland_main_window_anchor(),
+        layer: WaylandLayer::Bottom,
+        exclusive_zone: None,
+        size: Some(wayland_main_window_size(config)),
+        margin: Some(wayland_main_window_margin(config)),
+        keyboard_interactivity: KeyboardInteractivity::None,
+        ..Default::default()
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_open_base_window(size: Size) -> (window::Id, Task<Message>) {
+    Message::base_window_open(IcedXdgWindowSettings {
+        size: Some((size.width.round() as u32, size.height.round() as u32)),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_main_window_layout_task(id: window::Id, config: &AppConfig) -> Task<Message> {
+    Task::batch([
+        Task::done(Message::AnchorSizeChange {
+            id,
+            anchor: wayland_main_window_anchor(),
+            size: wayland_main_window_size(config),
+        }),
+        Task::done(Message::MarginChange {
+            id,
+            margin: wayland_main_window_margin(config),
+        }),
+    ])
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_main_window_anchor() -> WaylandAnchor {
+    WaylandAnchor::Top | WaylandAnchor::Left
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_main_window_size(config: &AppConfig) -> (u32, u32) {
+    (config.size, config.size)
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_main_window_margin(config: &AppConfig) -> (i32, i32, i32, i32) {
+    let position = main_window_position(config);
+
+    (position.y.round() as i32, 0, 0, position.x.round() as i32)
 }
 
 /// Fire an alarm: play sound and/or send a notification based on alert action.

@@ -122,9 +122,11 @@ If you have an active reminder, the main clock face now keeps some reminder pres
 
 Intermediate clock sizes switch to a reduced single-line summary so the face stays readable without dropping the overlay entirely. The smallest clock sizes show a compact active-count badge instead of item-by-item text.
 
-Hovering a visible reminder summary opens a separate reminder detail window beside the clock instead of drawing the full callout over the dial. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders in that same detached window, and the minimal count badge also uses the detached reminder window for its listed detail view.
+On X11 and Windows, hovering a visible reminder summary opens a separate reminder detail window beside the clock instead of drawing the full callout over the dial. Hovering the `+N more` suffix shows aggregate detail for the hidden reminders in that same detached window, and the minimal count badge also uses the detached reminder window for its listed detail view.
 
-That detached reminder surface is now blended to match the active clock-face theme more closely, so the transparent and minimal themes keep a lighter-touch overlay instead of switching to a strong opaque panel.
+On Wayland with layer-shell support, reminder hover detail stays inline on the clock face instead of opening a detached helper window.
+
+Where the detached reminder surface is used, it is blended to match the active clock-face theme more closely, so the transparent and minimal themes keep a lighter-touch overlay instead of switching to a strong opaque panel.
 
 ### Quick Timers
 
@@ -227,7 +229,7 @@ From the tray menu, you can:
 
 Clicking the tray icon focuses the main clock window.
 
-On Wayland sessions with tray support, Rust Clock starts in tray-only mode. Use the tray icon or the tray menu's `Show Clock` action to open the main clock window when you want it.
+On Wayland compositors with layer-shell support, the main clock opens as a desktop-layer surface. On compositors without that protocol, Rust Clock falls back to tray-only startup when tray support is available. If you then choose `Show Clock`, it opens as a normal application window and a taskbar or dock icon is expected. If you close the clock and a tray icon is available, use the tray icon or the tray menu's `Show Clock` action to reopen it.
 
 If no tray icon appears, the app can still be used normally.
 
@@ -300,6 +302,8 @@ Check that Rust Clock can write to your normal per-user configuration directory.
 
 ### Wayland Looks Different From X11
 
-That is normal for the current version. The X11-specific desktop placement features have not yet been replaced with full Wayland layer-shell support.
+That is normal for the current version. On Wayland compositors that advertise layer-shell support, the main clock uses desktop-layer placement while the settings and alarms windows still open as normal compositor-managed windows.
 
-If a tray icon is available, Rust Clock now falls back to a tray-only startup on Wayland instead of opening a regular app window immediately. When you do open the clock window from the tray, it still behaves like a normal Wayland app window for now.
+On Wayland compositors without layer-shell support, Rust Clock falls back to the earlier tray-only startup path when tray support is available, but a visible `Show Clock` window still behaves like a normal application window.
+
+Reminder hover detail stays inline on the clock face only when the Wayland layer-shell path is active.

@@ -125,8 +125,8 @@
 ### Wayland
 
 - [x] Safe runtime path that skips X11-only hinting
-- [ ] Layer-shell integration
-- [ ] Background-layer placement and focus rules
+- [x] Layer-shell integration
+- [x] Background-layer placement and focus rules
 
 ---
 

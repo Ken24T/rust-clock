@@ -24,6 +24,8 @@ pub struct PlatformCapabilities {
     pub sticky_workspace: bool,
     pub skip_taskbar: bool,
     pub tray_only_main_window: bool,
+    pub layer_shell_main_window: bool,
+    pub detached_hover_window: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

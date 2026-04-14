@@ -12,6 +12,8 @@ pub fn capabilities() -> PlatformCapabilities {
         sticky_workspace: false,
         skip_taskbar: false,
         tray_only_main_window: false,
+        layer_shell_main_window: false,
+        detached_hover_window: true,
     }
 }
 
