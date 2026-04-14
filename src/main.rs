@@ -49,10 +49,14 @@ pub fn main() -> iced::Result {
     let config = AppConfig::load();
     iced::daemon(
         move || {
-            let app = ClockApp::new(config.clone());
-            let (_id, open_task) = window::open(main_window_settings(&config));
+            let mut app = ClockApp::new(config.clone());
+            let startup_task = if app.starts_tray_only() {
+                Task::none()
+            } else {
+                app.open_main_window(false)
+            };
 
-            (app, open_task.map(|_| Message::ApplyStartupHints))
+            (app, startup_task)
         },
         ClockApp::update,
         ClockApp::view,
@@ -151,6 +155,7 @@ struct ClockApp {
     clock_face: ClockFace,
     config: AppConfig,
     capabilities: platform::PlatformCapabilities,
+    main_window: Option<window::Id>,
     alarm_manager: AlarmManager,
     alarm_form: AlarmForm,
     startup_hint_attempts: u8,
@@ -284,6 +289,7 @@ impl ClockApp {
             ),
             config,
             capabilities,
+            main_window: None,
             alarm_manager,
             alarm_form: AlarmForm::default(),
             startup_hint_attempts: 0,
@@ -298,6 +304,38 @@ impl ClockApp {
         };
         app.sync_clock_face_active_items();
         app
+    }
+
+    fn starts_tray_only(&self) -> bool {
+        self.capabilities.tray_only_main_window && self.tray_handle.is_some()
+    }
+
+    fn open_main_window(&mut self, focus: bool) -> Task<Message> {
+        if let Some(id) = self.main_window {
+            let mut tasks = vec![window::minimize(id, false)];
+
+            if focus {
+                tasks.push(window::gain_focus(id));
+            }
+
+            return Task::batch(tasks);
+        }
+
+        let (id, open_task) = window::open(main_window_settings(&self.config));
+        self.main_window = Some(id);
+        self.startup_hint_attempts = 0;
+
+        let mut tasks = vec![open_task.map(|_| Message::ApplyStartupHints)];
+
+        if focus {
+            tasks.push(window::gain_focus(id));
+        }
+
+        Task::batch(tasks)
+    }
+
+    fn keeps_running_without_main_window(&self) -> bool {
+        self.capabilities.tray_only_main_window && self.tray_handle.is_some()
     }
 
     /// Apply the current config to the live clock face.
@@ -321,9 +359,11 @@ impl ClockApp {
             self.save_config();
         }
 
-        window::oldest().and_then(move |id| {
+        if let Some(id) = self.main_window {
             Task::batch([window::move_to(id, position), window::resize(id, size)])
-        })
+        } else {
+            Task::none()
+        }
     }
 
     fn apply_size_change(&mut self) -> Task<Message> {
@@ -335,12 +375,14 @@ impl ClockApp {
         ));
         self.save_config();
 
-        let mut tasks = vec![window::oldest().and_then(move |id| {
-            Task::batch([
+        let mut tasks = Vec::new();
+
+        if let Some(id) = self.main_window {
+            tasks.push(Task::batch([
                 window::move_to(id, clamped_position),
                 window::resize(id, window_size),
-            ])
-        })];
+            ]));
+        }
 
         if let (Some(id), Some(content)) = (self.control_window, self.control_window_content) {
             tasks.push(window::move_to(
@@ -672,7 +714,7 @@ impl ClockApp {
 
         for command in pending_commands {
             match command {
-                TrayCommand::FocusClock => tasks.push(focus_clock_window()),
+                TrayCommand::FocusClock => tasks.push(self.open_main_window(true)),
                 TrayCommand::ShowAlarmPanel => {
                     tasks.push(self.show_alarm_panel_from_tray());
                 }
@@ -700,14 +742,17 @@ impl ClockApp {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ApplyStartupHints => {
-                if self.startup_hint_attempts >= STARTUP_HINT_ATTEMPTS {
-                    Task::none()
-                } else {
+                let layout = self.apply_saved_main_window_layout();
+
+                if !self.capabilities.desktop_window_hints
+                    || self.startup_hint_attempts >= STARTUP_HINT_ATTEMPTS
+                {
+                    layout
+                } else if let Some(id) = self.main_window {
                     self.startup_hint_attempts += 1;
-                    Task::batch([
-                        self.apply_saved_main_window_layout(),
-                        window::oldest().and_then(apply_startup_window_hints),
-                    ])
+                    Task::batch([layout, apply_startup_window_hints(id)])
+                } else {
+                    Task::none()
                 }
             }
             Message::ControlWindowOpened(id) => {
@@ -745,16 +790,18 @@ impl ClockApp {
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
             Message::StartDrag => {
-                let drag = window::oldest().and_then(window::drag);
+                let drag = if let Some(id) = self.main_window {
+                    window::drag(id)
+                } else {
+                    Task::none()
+                };
                 let close_control = self.close_control_window();
                 let close_hover = self.close_hover_window();
                 Task::batch([close_control, close_hover, drag])
             }
             Message::HoverWindowChanged(content) => self.update_hover_window(content),
             Message::WindowMoved(id, point) => {
-                if Some(id) == self.control_window || Some(id) == self.hover_window {
-                    Task::none()
-                } else {
+                if Some(id) == self.main_window {
                     let clamped_position = clamp_clock_position(point, self.config.size as f32);
                     self.config.position = Some((
                         clamped_position.x.round() as i32,
@@ -772,13 +819,23 @@ impl ClockApp {
                     } else {
                         Task::none()
                     }
+                } else {
+                    Task::none()
                 }
             }
             Message::WindowCloseRequested(id) => {
                 if Some(id) == self.control_window || Some(id) == self.hover_window {
                     window::close(id)
+                } else if Some(id) == self.main_window {
+                    if self.keeps_running_without_main_window() {
+                        let close_control = self.close_control_window();
+                        let close_hover = self.close_hover_window();
+                        Task::batch([close_control, close_hover, window::close(id)])
+                    } else {
+                        Task::done(Message::Quit)
+                    }
                 } else {
-                    Task::done(Message::Quit)
+                    Task::none()
                 }
             }
             Message::WindowClosed(id) => {
@@ -790,6 +847,9 @@ impl ClockApp {
                     self.hover_window = None;
                     self.hover_target = None;
                     self.hover_window_content = None;
+                    Task::none()
+                } else if Some(id) == self.main_window {
+                    self.main_window = None;
                     Task::none()
                 } else {
                     Task::none()
@@ -1025,10 +1085,12 @@ impl ClockApp {
                 Some(ControlWindowContent::Menu) => {
                     ContextMenu::widget(&self.config, &self.alarm_manager, chrome)
                 }
-                None => canvas(&self.clock_face).width(Fill).height(Fill).into(),
+                None => iced::widget::text("").into(),
             }
-        } else {
+        } else if Some(window) == self.main_window {
             canvas(&self.clock_face).width(Fill).height(Fill).into()
+        } else {
+            iced::widget::text("").into()
         }
     }
 
@@ -1040,6 +1102,7 @@ impl ClockApp {
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
         let startup_hint_retries = if self.capabilities.desktop_window_hints
+            && self.main_window.is_some()
             && self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS
         {
             iced::time::every(std::time::Duration::from_millis(
@@ -1104,11 +1167,6 @@ impl ClockApp {
 }
 
 // -- Helper functions ------------------------------------------------------
-
-fn focus_clock_window() -> Task<Message> {
-    window::oldest()
-        .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
-}
 
 fn main_window_layout(config: &AppConfig) -> (Point, Size) {
     let size = config.size as f32;

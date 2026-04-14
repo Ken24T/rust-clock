@@ -220,11 +220,14 @@ Rust Clock can add a tray icon when the current platform session supports it.
 
 From the tray menu, you can:
 
+- show the clock window
 - open `Alarms & Timers`
 - start a quick timer
 - quit the app
 
 Clicking the tray icon focuses the main clock window.
+
+On Wayland sessions with tray support, Rust Clock starts in tray-only mode. Use the tray icon or the tray menu's `Show Clock` action to open the main clock window when you want it.
 
 If no tray icon appears, the app can still be used normally.
 
@@ -298,3 +301,5 @@ Check that Rust Clock can write to your normal per-user configuration directory.
 ### Wayland Looks Different From X11
 
 That is normal for the current version. The X11-specific desktop placement features have not yet been replaced with full Wayland layer-shell support.
+
+If a tray icon is available, Rust Clock now falls back to a tray-only startup on Wayland instead of opening a regular app window immediately. When you do open the clock window from the tray, it still behaves like a normal Wayland app window for now.

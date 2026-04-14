@@ -5,13 +5,33 @@ use crate::tray::{self, SystemTrayHandle, TrayCommand};
 use super::{PlatformCapabilities, WorkArea};
 
 pub fn capabilities() -> PlatformCapabilities {
+    let wayland_session = is_wayland_session();
+
     PlatformCapabilities {
         system_tray: true,
         notifications: true,
-        desktop_window_hints: true,
-        sticky_workspace: true,
-        skip_taskbar: true,
+        desktop_window_hints: !wayland_session,
+        sticky_workspace: !wayland_session,
+        skip_taskbar: !wayland_session,
+        tray_only_main_window: wayland_session,
     }
+}
+
+fn is_wayland_session() -> bool {
+    is_wayland_session_from_env(
+        std::env::var_os("XDG_SESSION_TYPE").as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+    )
+}
+
+fn is_wayland_session_from_env(
+    xdg_session_type: Option<&std::ffi::OsStr>,
+    wayland_display: Option<&std::ffi::OsStr>,
+) -> bool {
+    xdg_session_type
+        .map(|value| value.to_string_lossy().eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || wayland_display.is_some()
 }
 
 pub fn work_area_for_point(_x: f32, _y: f32) -> Option<WorkArea> {
@@ -352,7 +372,9 @@ fn apply_xprop_window_hints(
 
 #[cfg(test)]
 mod tests {
-    use super::{distance_sq_to_work_area, point_in_work_area, select_work_area};
+    use super::{
+        distance_sq_to_work_area, is_wayland_session_from_env, point_in_work_area, select_work_area,
+    };
     use crate::platform::WorkArea;
 
     #[test]
@@ -405,6 +427,30 @@ mod tests {
             distance_sq_to_work_area(work_areas[0], gap_point.0, gap_point.1)
                 < distance_sq_to_work_area(work_areas[1], gap_point.0, gap_point.1)
         );
+    }
+
+    #[test]
+    fn wayland_session_detects_wayland_session_type() {
+        assert!(is_wayland_session_from_env(
+            Some(std::ffi::OsStr::new("wayland")),
+            None,
+        ));
+    }
+
+    #[test]
+    fn wayland_session_detects_wayland_display() {
+        assert!(is_wayland_session_from_env(
+            Some(std::ffi::OsStr::new("x11")),
+            Some(std::ffi::OsStr::new("wayland-0")),
+        ));
+    }
+
+    #[test]
+    fn wayland_session_rejects_plain_x11_environment() {
+        assert!(!is_wayland_session_from_env(
+            Some(std::ffi::OsStr::new("x11")),
+            None,
+        ));
     }
 }
 

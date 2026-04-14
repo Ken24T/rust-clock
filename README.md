@@ -26,7 +26,8 @@ Rust Clock is still Linux-first, but the project is now being structured for a s
 
 - Linux on X11 is the reference implementation today
 - Linux applies X11 window hints to stay below other windows, skip the taskbar, skip the pager, and stay sticky across workspaces
-- Wayland runs without the X11-specific hinting, but dedicated layer-shell support is not implemented yet
+- Wayland runs without the X11-specific hinting, so when a tray icon is available Rust Clock now starts in tray-only mode by default there
+- Opening the clock window from the tray on Wayland still uses a normal application window until dedicated layer-shell support exists
 - Windows currently uses a simpler floating-widget model: transparent borderless main window, movable clock, and always-on-top control windows
 - Windows toast notifications are available through the platform layer
 - Windows tray support is available for focus, alarms panel, quick timers, and quit
@@ -155,6 +156,8 @@ When the tray icon is available, it provides:
 - open the Alarms & Timers panel
 - start quick timers
 - quit the app
+
+On Wayland sessions with tray support, Rust Clock starts in tray-only mode. Use the tray icon or the tray menu's `Show Clock` action to open or refocus the main clock window.
 
 ## Configuration Files
 

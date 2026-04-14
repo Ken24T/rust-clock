@@ -98,6 +98,15 @@ mod linux {
 
             vec![
                 StandardItem {
+                    label: "Show Clock".into(),
+                    icon_name: "preferences-system-time".into(),
+                    activate: Box::new(|tray: &mut Self| {
+                        let _ = tray.command_sender.send(TrayCommand::FocusClock);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                StandardItem {
                     label: "Alarms & Timers".into(),
                     icon_name: "alarm-symbolic".into(),
                     activate: Box::new(|tray: &mut Self| {

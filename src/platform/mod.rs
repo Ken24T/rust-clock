@@ -23,6 +23,7 @@ pub struct PlatformCapabilities {
     pub desktop_window_hints: bool,
     pub sticky_workspace: bool,
     pub skip_taskbar: bool,
+    pub tray_only_main_window: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

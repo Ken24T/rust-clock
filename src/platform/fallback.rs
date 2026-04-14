@@ -11,6 +11,7 @@ pub fn capabilities() -> PlatformCapabilities {
         desktop_window_hints: false,
         sticky_workspace: false,
         skip_taskbar: false,
+        tray_only_main_window: false,
     }
 }
 
