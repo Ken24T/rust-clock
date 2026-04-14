@@ -451,8 +451,8 @@ fn apply_xprop_window_hints(
 #[cfg(test)]
 mod tests {
     use super::{
-        distance_sq_to_work_area, global_names_include_layer_shell,
-        is_wayland_session_from_env, point_in_work_area, select_work_area,
+        distance_sq_to_work_area, global_names_include_layer_shell, is_wayland_session_from_env,
+        point_in_work_area, select_work_area,
     };
     use crate::platform::WorkArea;
 

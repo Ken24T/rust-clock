@@ -28,8 +28,8 @@ use std::time::Instant;
 use iced_exwlshell::actions::IcedXdgWindowSettings;
 #[cfg(target_os = "linux")]
 use iced_exwlshell::reexport::{
-    Anchor as WaylandAnchor, KeyboardInteractivity, Layer as WaylandLayer,
-    NewLayerShellSettings, WlShellType,
+    Anchor as WaylandAnchor, KeyboardInteractivity, Layer as WaylandLayer, NewLayerShellSettings,
+    WlShellType,
 };
 #[cfg(target_os = "linux")]
 use iced_exwlshell::settings::{
