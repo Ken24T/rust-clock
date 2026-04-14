@@ -1,5 +1,5 @@
 ---
-description: "Use when the user explicitly asks for ship, ship please, shipping, prepare release, checkpoint, checkpoint please, publish, publish please, deploy, deploy please, handover, handover please, resume, resume please, status, status please, abort, branch, or branch <new-branch-name> in a repository using the TCTBP workflow."
+description: "Use when the user explicitly asks for ship, ship please, shipping, prepare release, checkpoint, checkpoint please, publish, publish please, deploy, deploy please, handover, handover please, resume, resume please, status, status please, abort, branch, or branch <new-branch-name> in the Rust Clock repository using the TCTBP workflow."
 name: "TCTBP"
 tools: [read, search, execute, edit, todo]
 argument-hint: "Explicit TCTBP workflow request or branch command"

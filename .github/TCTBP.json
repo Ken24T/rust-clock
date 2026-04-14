@@ -4,13 +4,14 @@
     "sourceOfTruth": "TCTBP.json",
     "fallbackDocument": "TCTBP Agent.md",
     "templateMode": false,
-    "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, tag format, status-report tables, deployment expectations, and local runtime conventions when updating these files."
+    "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, plain semver tag format, deployment expectations, and local runtime conventions when updating these files."
   },
   "project": {
     "name": "rust-clock",
-    "description": "Analog clock desklet for Linux with alarms, timers, tray controls, recurring reminders, and an early Windows baseline.",
+    "description": "Analog clock desktop widget for Linux with alarms, timers, tray controls, feature-specific docs, and an early Windows baseline.",
     "defaultBranch": "main",
     "versionFiles": ["Cargo.toml"],
+    "changelogFormat": null,
     "locale": "en-AU"
   },
   "profile": {
@@ -47,8 +48,6 @@
       "ship please",
       "shipping",
       "prepare release",
-      "checkpoint",
-      "checkpoint please",
       "publish",
       "publish please",
       "checkpoint",
@@ -181,7 +180,7 @@
       "metadata-consistency",
       "handover-baseline"
     ],
-    "comment": "At the end of handover, render a concise five-row summary table that confirms the current branch, tag state, metadata branch publication, metadata consistency, and clean synced baseline. Emit it as a standalone Markdown table block with a blank line before and after the table. Keep it shorter than status and focused on the handover result."
+    "comment": "At the end of handover, render a concise five-row summary table that confirms the current branch, tag state, metadata branch publication, metadata consistency, and clean synced baseline. Emit it as a standalone Markdown table block with a blank line before and after it. Keep it shorter than status and focused on the handover result."
   },
   "checkpointReport": {
     "enabled": true,
@@ -195,21 +194,7 @@
       "upstream-sync-state",
       "remote-side-effects"
     ],
-    "comment": "At the end of checkpoint, render a concise summary table focused on the actual commit transition and the resulting local-only baseline. Emit it as a standalone Markdown table block with a blank line before and after the table. Include the previous HEAD commit, the new checkpoint commit, the resulting working-tree state, the branch sync state, and an explicit confirmation that remote state did not change. Use 'n/a' where no meaningful origin-side value exists."
-  },
-  "checkpointReport": {
-    "enabled": true,
-    "stage": "summary",
-    "format": "table",
-    "columns": ["Origin", "Local", "Status", "Action(s)"],
-    "recommendedRows": [
-      "previous-head-commit",
-      "checkpoint-commit",
-      "working-tree-result",
-      "upstream-sync-state",
-      "remote-side-effects"
-    ],
-    "comment": "At the end of checkpoint, render a concise summary table focused on the actual commit transition and the resulting local-only baseline. Include the previous HEAD commit, the new checkpoint commit, the resulting working-tree state, the branch sync state, and an explicit confirmation that remote state did not change. Use 'n/a' where no meaningful origin-side value exists."
+    "comment": "At the end of checkpoint, render a concise summary table focused on the actual commit transition and the resulting local-only baseline. Emit it as a standalone Markdown table block with a blank line before and after it. Include the previous HEAD commit, the new checkpoint commit, the resulting working-tree state, the branch sync state, and an explicit confirmation that remote state did not change. Use 'n/a' where no meaningful origin-side value exists."
   },
   "branch": {
     "enabled": true,
@@ -334,10 +319,10 @@
     }
   },
   "docsInfraPolicy": {
-    "skipSteps": ["test", "lint", "build"],
+    "skipSteps": ["format", "test", "lint", "build"],
     "keepSteps": ["preflight", "problems-editor", "docs-impact", "commit", "push"],
-    "filePatterns": ["*.md", "*.txt", "*.rst", "docs/**", ".github/**", "packaging/**", "LICENSE*", "CHANGELOG*", "CONTRIBUTING*"],
-    "comment": "For docs-only or infrastructure-only changes: skip heavy verification commands, keep editor diagnostics and docs impact assessment."
+    "filePatterns": ["*.md", "*.txt", "*.rst", "docs/**", ".github/**", "PLAN.md", "LICENSE*", "CHANGELOG*", "CONTRIBUTING*"],
+    "comment": "For docs-only or workflow-only changes: skip the Rust verification commands, but keep editor diagnostics and docs impact assessment. Treat Cargo, source, installer scripts, desktop entries, and packaging inputs as code or packaging changes rather than docs-only."
   },
   "documentation": {
     "requireImpactAssessment": true,
@@ -392,25 +377,26 @@
     "targets": {
       "linux-local-runtime": {
         "description": "Install or upgrade the local Linux runtime binary under /usr/local/bin/rust-clock.",
+        "buildCommand": "cargo build --release",
         "installCommand": "sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock",
         "postDeployValidation": [
-          "sha256sum target/release/rust-clock /usr/local/bin/rust-clock"
+          "Run sha256sum target/release/rust-clock /usr/local/bin/rust-clock and confirm the hashes match"
         ]
       },
       "linux-user-local": {
         "description": "Install the release binary and desktop entry into the current user's local application paths.",
-        "installCommands": [
-          "./scripts/install-linux-user-local.sh"
-        ],
-        "postDeployChecks": [
-          "test -x ~/.local/bin/rust-clock",
-          "test -f ~/.local/share/applications/rust-clock.desktop",
-          "grep -q '^Exec=/home/.*/\\.local/bin/rust-clock$' ~/.local/share/applications/rust-clock.desktop || grep -q '^Exec='\"$HOME\"'/\\.local/bin/rust-clock$' ~/.local/share/applications/rust-clock.desktop"
+        "buildCommand": "cargo build --release",
+        "installCommand": "./scripts/install-linux-user-local.sh",
+        "postDeployValidation": [
+          "Confirm ~/.local/bin/rust-clock exists and is executable",
+          "Confirm ~/.local/share/applications/rust-clock.desktop exists",
+          "Confirm the desktop entry Exec path points at ~/.local/bin/rust-clock"
         ]
       },
       "windows-installer": {
         "description": "Build the Windows installer package under dist/windows using Inno Setup.",
-        "installCommand": "pwsh -File .\\installer\\windows\\build-installer.ps1",
+        "buildCommand": "pwsh -File .\\installer\\windows\\build-installer.ps1",
+        "expectedOutput": "dist/windows/rust-clock-setup-<version>.exe",
         "postDeployValidation": [
           "Confirm that dist/windows contains the expected versioned installer output"
         ]

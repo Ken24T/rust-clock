@@ -325,63 +325,16 @@ When updating these workflow files, preserve the following local choices unless 
 - plain semver release tags with no `v` prefix
 - `Cargo.toml` as version source
 - `cargo build` as the default SHIP build gate
-- `cargo build --release` only for explicit deployment/install work
+- `cargo build --release` only for explicit deployment, installation, packaging, or deploy-trigger work
 - the dev harness launcher and its stale-process protections
 - Linux and Windows deployment targets and docs paths
 - Australian English conventions
 
-Preflight guard rails:
-
-- fetch origin when needed
-- stop if `HEAD` is detached
-- allow first publication from a clean unpublished branch
-- stop if the branch is behind or diverged from origin
-- stop if the working tree is dirty
-- render a release-focused four-column snapshot table before mutating anything
-
-Verify and build policy:
-
-- normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
-- use `cargo build --release` only when the user explicitly requests installation, packaging, or deployment work, or when the deploy workflow requires it
-- docs/infra-only changes may skip heavyweight code gates according to `.github/TCTBP.json`, but still require editor diagnostics and docs impact assessment
-
-Versioning rules:
-
-- patch bump on every SHIP except docs-only or infrastructure-only changes
-- first SHIP on a `feature/` branch gets a minor bump instead of a patch bump
-- major bump only by explicit instruction
-- apply version changes to `Cargo.toml` before committing
-
-Tagging rules:
-
-- use plain semver tags like `1.2.2`
-- one tag per shipped commit
-- skip tagging when no version bump occurs
-
-Docs impact rules:
-
-- `README.md` and `docs/user-guide.md` for user-visible, UI, or settings changes
-- `docs/windows-installer.md` and installer assets for packaging changes
-- `PLAN.md` and feature-specific planning docs for roadmap/status changes
-- if no docs changes are required, record `No docs impact` with a short reason
-
 ## Summary Table Consistency
 
-For SHIP, handover, and status tables:
+For SHIP, handover, status, and checkpoint tables:
 
 - columns must be `Origin`, `Local`, `Status`, and `Action(s)`
 - use `n/a` when there is no meaningful origin-side value
 - keep `Status` diagnostic, not narrative
 - keep `Action(s)` concrete and short
-
-## Repo-Specific Preservation Notes
-
-When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
-
-- plain numeric release tags instead of `v`-prefixed tags
-- `Cargo.toml` as version source
-- `cargo build` as the default SHIP build gate
-- `cargo build --release` only for explicit deployment/install/packaging work
-- Rust + iced project structure and Windows installer assets under `installer/windows/`
-- docs paths under `docs/` plus `PLAN.md`
-- Australian English conventions
