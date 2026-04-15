@@ -168,7 +168,7 @@ To set a reminder for a specific time:
 4. Add a label if you want one.
 5. Add a message if you want one.
 6. Enter the time as `HH:MM`.
-7. If you chose `Once`, optionally enter the date as `YYYY-MM-DD`.
+7. If you chose `Once`, pick the date from the date picker.
 8. If you chose `Weekly`, select the weekday.
 9. If you chose `Custom Days`, select one or more weekdays.
 10. Select `Add`.

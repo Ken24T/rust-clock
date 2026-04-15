@@ -32,8 +32,8 @@ const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
 
 use alarm::{
-    play_alarm_sound, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode, AlertAction,
-    ScheduleWeekday, TimerRepeatMode,
+    play_alarm_sound, AlarmDateMonth, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode,
+    AlertAction, ScheduleWeekday, TimerRepeatMode,
 };
 use clock_face::{ClockFace, HoverWindowContent, OverlayHitTarget};
 use config::{AppConfig, ClockSizePreset};
@@ -236,8 +236,14 @@ enum Message {
     AlarmFormCadenceMinutesChanged(String),
     /// Form: alarm time (HH:MM) changed.
     AlarmFormTimeChanged(String),
-    /// Form: alarm date (YYYY-MM-DD) changed.
-    AlarmFormDateChanged(String),
+    /// Form: one-shot alarm date year changed.
+    AlarmFormSetDateYear(i32),
+    /// Form: one-shot alarm date month changed.
+    AlarmFormSetDateMonth(AlarmDateMonth),
+    /// Form: one-shot alarm day changed.
+    AlarmFormSetDateDay(u32),
+    /// Form: reset the one-shot alarm date to today.
+    AlarmFormSetDateToday,
     /// Form: switch timer between once and repeating interval.
     AlarmFormSetTimerRepeat(TimerRepeatMode),
     /// Form: switch alarm between one-shot and recurring schedule.
@@ -435,9 +441,13 @@ impl ClockApp {
     /// Parse the alarm form and create or update an alarm.
     fn submit_alarm_form(&mut self) {
         use alarm::{Alarm, AlarmKind, AlertAction, RecurrenceRule};
-        use chrono::{Duration, Local, LocalResult, NaiveDate, NaiveTime};
+        use chrono::{Duration, Local, LocalResult, NaiveTime};
 
         let form = &self.alarm_form;
+        if !form.can_submit() {
+            return;
+        }
+
         let label = if form.label.trim().is_empty() {
             match form.mode {
                 AlarmFormMode::Timer => "Timer".to_string(),
@@ -509,17 +519,7 @@ impl ClockApp {
                 };
                 match form.alarm_repeat {
                     AlarmRepeatMode::Once => {
-                        let date = if form.alarm_date.trim().is_empty() {
-                            Local::now().date_naive()
-                        } else {
-                            match NaiveDate::parse_from_str(form.alarm_date.trim(), "%Y-%m-%d") {
-                                Ok(d) => d,
-                                Err(e) => {
-                                    eprintln!("Invalid alarm date '{}': {e}", form.alarm_date);
-                                    return;
-                                }
-                            }
-                        };
+                        let date = form.alarm_date_or_today();
                         let naive_dt = date.and_time(time);
                         let target = match naive_dt.and_local_timezone(Local) {
                             LocalResult::Single(target) => target,
@@ -923,8 +923,20 @@ impl ClockApp {
                 self.alarm_form.alarm_time = value;
                 Task::none()
             }
-            Message::AlarmFormDateChanged(value) => {
-                self.alarm_form.alarm_date = value;
+            Message::AlarmFormSetDateYear(year) => {
+                self.alarm_form.set_alarm_date_year(year);
+                Task::none()
+            }
+            Message::AlarmFormSetDateMonth(month) => {
+                self.alarm_form.set_alarm_date_month(month);
+                Task::none()
+            }
+            Message::AlarmFormSetDateDay(day) => {
+                self.alarm_form.set_alarm_date_day(day);
+                Task::none()
+            }
+            Message::AlarmFormSetDateToday => {
+                self.alarm_form.set_alarm_date_today();
                 Task::none()
             }
             Message::AlarmFormSetTimerRepeat(mode) => {

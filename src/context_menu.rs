@@ -44,13 +44,15 @@ impl<'a> ContextMenu<'a> {
 
     fn build(self, chrome: WindowChrome) -> Element<'a, Message> {
         let heading = text("Rust Clock").size(14).color(chrome.text);
+        let version = container(
+            text(format!("v{}", env!("CARGO_PKG_VERSION")))
+                .size(10)
+                .color(chrome.muted_text),
+        )
+        .width(Length::Fill)
+        .align_x(alignment::Horizontal::Right);
 
-        let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
-            .on_press(Message::DismissMenu)
-            .padding(Padding::from([1, 5]))
-            .style(move |theme, status| menu_button_style(theme, status, chrome));
-
-        let header_row = row![heading, close_btn]
+        let header_row = row![heading, version]
             .spacing(6)
             .align_y(alignment::Vertical::Center);
 

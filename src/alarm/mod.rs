@@ -16,6 +16,7 @@ pub use sound::play_alarm_sound;
 
 use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, NaiveTime};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 /// Compact kind marker for items projected onto the clock face.
@@ -63,6 +64,96 @@ pub enum AlarmRepeatMode {
     Weekdays,
     Weekly,
     SelectedWeekdays,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlarmDateMonth {
+    January,
+    February,
+    March,
+    April,
+    May,
+    June,
+    July,
+    August,
+    September,
+    October,
+    November,
+    December,
+}
+
+impl AlarmDateMonth {
+    pub const ALL: [AlarmDateMonth; 12] = [
+        AlarmDateMonth::January,
+        AlarmDateMonth::February,
+        AlarmDateMonth::March,
+        AlarmDateMonth::April,
+        AlarmDateMonth::May,
+        AlarmDateMonth::June,
+        AlarmDateMonth::July,
+        AlarmDateMonth::August,
+        AlarmDateMonth::September,
+        AlarmDateMonth::October,
+        AlarmDateMonth::November,
+        AlarmDateMonth::December,
+    ];
+
+    pub fn number(self) -> u32 {
+        match self {
+            Self::January => 1,
+            Self::February => 2,
+            Self::March => 3,
+            Self::April => 4,
+            Self::May => 5,
+            Self::June => 6,
+            Self::July => 7,
+            Self::August => 8,
+            Self::September => 9,
+            Self::October => 10,
+            Self::November => 11,
+            Self::December => 12,
+        }
+    }
+
+    fn from_number(month: u32) -> Self {
+        match month {
+            1 => Self::January,
+            2 => Self::February,
+            3 => Self::March,
+            4 => Self::April,
+            5 => Self::May,
+            6 => Self::June,
+            7 => Self::July,
+            8 => Self::August,
+            9 => Self::September,
+            10 => Self::October,
+            11 => Self::November,
+            _ => Self::December,
+        }
+    }
+
+    fn short_label(self) -> &'static str {
+        match self {
+            Self::January => "Jan",
+            Self::February => "Feb",
+            Self::March => "Mar",
+            Self::April => "Apr",
+            Self::May => "May",
+            Self::June => "Jun",
+            Self::July => "Jul",
+            Self::August => "Aug",
+            Self::September => "Sep",
+            Self::October => "Oct",
+            Self::November => "Nov",
+            Self::December => "Dec",
+        }
+    }
+}
+
+impl fmt::Display for AlarmDateMonth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.short_label())
+    }
 }
 
 /// Editable form state for creating or editing an alarm.
@@ -189,6 +280,103 @@ impl AlarmForm {
             TimerRepeatMode::Once | TimerRepeatMode::Repeating => {}
         }
     }
+
+    pub fn can_submit(&self) -> bool {
+        match self.mode {
+            AlarmFormMode::Timer => match self.timer_repeat {
+                TimerRepeatMode::Once => parse_positive_u64(&self.timer_minutes).is_some(),
+                TimerRepeatMode::Repeating => {
+                    parse_positive_u64(&self.timer_cadence_minutes).is_some()
+                }
+            },
+            AlarmFormMode::Alarm => {
+                NaiveTime::parse_from_str(self.alarm_time.trim(), "%H:%M").is_ok()
+                    && match self.alarm_repeat {
+                        AlarmRepeatMode::SelectedWeekdays => !self.selected_weekdays.is_empty(),
+                        AlarmRepeatMode::Once
+                        | AlarmRepeatMode::Daily
+                        | AlarmRepeatMode::Weekdays
+                        | AlarmRepeatMode::Weekly => true,
+                    }
+            }
+        }
+    }
+
+    pub fn alarm_date_or_today(&self) -> NaiveDate {
+        NaiveDate::parse_from_str(self.alarm_date.trim(), "%Y-%m-%d")
+            .unwrap_or_else(|_| Local::now().date_naive())
+    }
+
+    pub fn alarm_date_year(&self) -> i32 {
+        self.alarm_date_or_today().year()
+    }
+
+    pub fn alarm_date_month(&self) -> AlarmDateMonth {
+        AlarmDateMonth::from_number(self.alarm_date_or_today().month())
+    }
+
+    pub fn alarm_date_day(&self) -> u32 {
+        self.alarm_date_or_today().day()
+    }
+
+    pub fn alarm_date_day_count(&self) -> u32 {
+        days_in_month(self.alarm_date_year(), self.alarm_date_month().number())
+    }
+
+    pub fn set_alarm_date_today(&mut self) {
+        self.set_alarm_date(Local::now().date_naive());
+    }
+
+    pub fn set_alarm_date_year(&mut self, year: i32) {
+        self.set_alarm_date_components(
+            year,
+            self.alarm_date_month().number(),
+            self.alarm_date_day(),
+        );
+    }
+
+    pub fn set_alarm_date_month(&mut self, month: AlarmDateMonth) {
+        self.set_alarm_date_components(
+            self.alarm_date_year(),
+            month.number(),
+            self.alarm_date_day(),
+        );
+    }
+
+    pub fn set_alarm_date_day(&mut self, day: u32) {
+        self.set_alarm_date_components(
+            self.alarm_date_year(),
+            self.alarm_date_month().number(),
+            day,
+        );
+    }
+
+    fn set_alarm_date_components(&mut self, year: i32, month: u32, day: u32) {
+        let clamped_day = day.clamp(1, days_in_month(year, month));
+        if let Some(date) = NaiveDate::from_ymd_opt(year, month, clamped_day) {
+            self.set_alarm_date(date);
+        }
+    }
+
+    fn set_alarm_date(&mut self, date: NaiveDate) {
+        self.alarm_date = date.format("%Y-%m-%d").to_string();
+    }
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let next_month_start =
+        NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("valid next month");
+
+    (next_month_start - Duration::days(1)).day()
+}
+
+fn parse_positive_u64(value: &str) -> Option<u64> {
+    value.trim().parse().ok().filter(|parsed| *parsed > 0)
 }
 
 /// Custom serde module for `DateTime<Local>` as UNIX timestamps.
@@ -854,14 +1042,7 @@ impl Alarm {
         if now >= target {
             return "now!".to_string();
         }
-        let diff = (target - now).num_seconds();
-        if diff >= 3600 {
-            format!("{}h {}m", diff / 3600, (diff % 3600) / 60)
-        } else if diff >= 60 {
-            format!("{}m {}s", diff / 60, diff % 60)
-        } else {
-            format!("{diff}s")
-        }
+        format_remaining_secs((target - now).num_seconds())
     }
 
     /// Short description of what kind of alarm this is.
@@ -931,19 +1112,31 @@ impl PausedState {
 }
 
 fn format_remaining_secs(remaining_secs: i64) -> String {
-    let diff = remaining_secs.max(0);
+    let diff = remaining_secs.max(0) as u64;
+    let days = diff / 86_400;
+    let hours = (diff % 86_400) / 3_600;
+    let minutes = (diff % 3_600) / 60;
+    let seconds = diff % 60;
 
-    if diff >= 3600 {
-        format!("{}h {}m", diff / 3600, (diff % 3600) / 60)
+    if days > 0 {
+        format!("{days}d, {hours}h {minutes}m")
+    } else if diff >= 3600 {
+        format!("{hours}h {minutes}m")
     } else if diff >= 60 {
-        format!("{}m {}s", diff / 60, diff % 60)
+        format!("{minutes}m {seconds}s")
     } else {
-        format!("{diff}s")
+        format!("{seconds}s")
     }
 }
 
 fn format_duration(secs: u64) -> String {
-    if secs >= 3600 {
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let minutes = (secs % 3_600) / 60;
+
+    if days > 0 {
+        format!("{days}d, {hours}h {minutes}m")
+    } else if secs >= 3600 {
         let hours = secs / 3600;
         let minutes = (secs % 3600) / 60;
         if minutes > 0 {
@@ -1085,6 +1278,34 @@ mod tests {
 
         let remaining = (alarm.kind.target() - resumed_at).num_seconds();
         assert!(remaining >= 239 && remaining <= 241);
+    }
+
+    #[test]
+    fn long_remaining_time_uses_day_hour_minute_format() {
+        assert_eq!(
+            format_remaining_secs(2 * 86_400 + 14 * 3_600 + 23 * 60 + 59),
+            "2d, 14h 23m"
+        );
+    }
+
+    #[test]
+    fn long_duration_uses_day_hour_minute_format() {
+        assert_eq!(
+            format_duration(2 * 86_400 + 14 * 3_600 + 23 * 60),
+            "2d, 14h 23m"
+        );
+    }
+
+    #[test]
+    fn alarm_form_clamps_day_when_switching_to_shorter_month() {
+        let mut form = AlarmForm {
+            alarm_date: "2026-03-31".to_string(),
+            ..AlarmForm::default()
+        };
+
+        form.set_alarm_date_month(AlarmDateMonth::February);
+
+        assert_eq!(form.alarm_date, "2026-02-28");
     }
 
     #[test]

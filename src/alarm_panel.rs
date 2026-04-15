@@ -8,13 +8,16 @@
 //! - Active alarm list with edit and delete
 //! - Clear done / close buttons
 
+use chrono::{Datelike, Local};
 use iced::alignment;
-use iced::widget::{button, center, column, container, row, scrollable, text, text_input};
+use iced::widget::{
+    button, center, column, container, pick_list, row, scrollable, text, text_input,
+};
 use iced::{Color, Element, Fill, Length, Padding};
 
 use crate::alarm::{
-    Alarm, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode, ScheduleWeekday,
-    TimerRepeatMode,
+    Alarm, AlarmDateMonth, AlarmForm, AlarmFormMode, AlarmManager, AlarmRepeatMode,
+    ScheduleWeekday, TimerRepeatMode,
 };
 use crate::theme::WindowChrome;
 use crate::Message;
@@ -39,15 +42,7 @@ pub fn alarm_panel<'a>(
     chrome: WindowChrome,
 ) -> Element<'a, Message> {
     let heading = text("Alarms & Timers").size(15).color(chrome.text);
-
-    let close_btn = button(text("✕").size(12).align_x(alignment::Horizontal::Center))
-        .on_press(Message::DismissAlarmPanel)
-        .padding(Padding::from([1, 5]))
-        .style(move |theme, status| delete_button_style(theme, status, chrome));
-
-    let header_row = row![heading, close_btn]
-        .spacing(6)
-        .align_y(alignment::Vertical::Center);
+    let header_row = row![heading].align_y(alignment::Vertical::Center);
 
     let separator = separator_widget(chrome);
 
@@ -328,9 +323,13 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
             .size(11)
             .align_x(alignment::Horizontal::Center),
     )
-    .on_press(Message::AlarmFormSubmit)
     .padding(Padding::from([3, 8]))
     .style(move |theme, status| submit_button_style(theme, status, chrome));
+    let submit_btn: Element<'_, Message> = if form.can_submit() {
+        submit_btn.on_press(Message::AlarmFormSubmit).into()
+    } else {
+        submit_btn.into()
+    };
 
     let cancel_label = if is_editing { "Cancel" } else { "Clear" };
     let cancel_btn = button(
@@ -342,7 +341,7 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
     .padding(Padding::from([3, 8]))
     .style(move |theme, status| close_button_style(theme, status, chrome));
 
-    let action_row: Vec<Element<'_, Message>> = vec![submit_btn.into(), cancel_btn.into()];
+    let action_row: Vec<Element<'_, Message>> = vec![submit_btn, cancel_btn.into()];
 
     let mut elements: Vec<Element<'_, Message>> = vec![
         heading.into(),
@@ -455,13 +454,78 @@ fn build_form_elements(form: &AlarmForm, chrome: WindowChrome) -> Vec<Element<'_
             );
             match form.alarm_repeat {
                 AlarmRepeatMode::Once => {
+                    let selected_date = form.alarm_date_or_today();
+                    let is_today_selected = selected_date == Local::now().date_naive();
+                    let year_options: Vec<i32> =
+                        ((selected_date.year() - 1)..=(selected_date.year() + 5)).collect();
+                    let day_options: Vec<u32> = (1..=form.alarm_date_day_count()).collect();
+                    let today_btn = button(
+                        text(if is_today_selected {
+                            "Today"
+                        } else {
+                            "Use Today"
+                        })
+                        .size(10)
+                        .align_x(alignment::Horizontal::Center),
+                    )
+                    .padding(Padding::from([2, 6]))
+                    .style(move |theme, status| preset_button_style(theme, status, chrome));
+                    let today_btn: Element<'_, Message> = if is_today_selected {
+                        today_btn.into()
+                    } else {
+                        today_btn.on_press(Message::AlarmFormSetDateToday).into()
+                    };
+
                     elements.push(
-                        text_input("Date (YYYY-MM-DD, blank=today)", &form.alarm_date)
-                            .on_input(Message::AlarmFormDateChanged)
-                            .size(11)
-                            .padding(Padding::from([3, 6]))
-                            .style(move |theme, status| form_input_style(theme, status, chrome))
-                            .into(),
+                        row![
+                            text("Pick Date").size(10).color(chrome.muted_text),
+                            text(selected_date.format("%Y-%m-%d").to_string())
+                                .size(10)
+                                .color(chrome.muted_text),
+                            today_btn,
+                        ]
+                        .spacing(6)
+                        .align_y(alignment::Vertical::Center)
+                        .into(),
+                    );
+                    elements.push(
+                        row![
+                            pick_list(
+                                year_options,
+                                Some(form.alarm_date_year()),
+                                Message::AlarmFormSetDateYear,
+                            )
+                            .text_size(11)
+                            .style(move |theme, status| {
+                                date_pick_list_style(theme, status, chrome)
+                            })
+                            .menu_style(move |theme| date_pick_list_menu_style(theme, chrome))
+                            .width(Length::FillPortion(2)),
+                            pick_list(
+                                AlarmDateMonth::ALL,
+                                Some(form.alarm_date_month()),
+                                Message::AlarmFormSetDateMonth,
+                            )
+                            .text_size(11)
+                            .style(move |theme, status| {
+                                date_pick_list_style(theme, status, chrome)
+                            })
+                            .menu_style(move |theme| date_pick_list_menu_style(theme, chrome))
+                            .width(Length::FillPortion(2)),
+                            pick_list(
+                                day_options,
+                                Some(form.alarm_date_day()),
+                                Message::AlarmFormSetDateDay,
+                            )
+                            .text_size(11)
+                            .style(move |theme, status| {
+                                date_pick_list_style(theme, status, chrome)
+                            })
+                            .menu_style(move |theme| date_pick_list_menu_style(theme, chrome))
+                            .width(Length::FillPortion(1)),
+                        ]
+                        .spacing(4)
+                        .into(),
                     );
                 }
                 AlarmRepeatMode::Weekly => {
@@ -769,11 +833,16 @@ fn preset_button_style(
 ) -> button::Style {
     let bg = match status {
         button::Status::Hovered | button::Status::Pressed => chrome.surface_hover,
+        button::Status::Disabled => chrome.separator,
         _ => chrome.surface,
+    };
+    let text_color = match status {
+        button::Status::Disabled => chrome.muted_text,
+        _ => chrome.text,
     };
     button::Style {
         background: Some(iced::Background::Color(bg)),
-        text_color: chrome.text,
+        text_color,
         border: iced::Border {
             color: chrome.panel_border,
             width: 1.0,
@@ -809,6 +878,7 @@ fn submit_button_style(
 ) -> button::Style {
     let (bg, text_color) = match status {
         button::Status::Hovered | button::Status::Pressed => (chrome.success, chrome.success_text),
+        button::Status::Disabled => (chrome.separator, chrome.muted_text),
         _ => (chrome.success_soft, chrome.success_soft_text),
     };
     button::Style {
@@ -904,5 +974,51 @@ fn form_input_style(
         placeholder: chrome.input_placeholder,
         value: chrome.text,
         selection: chrome.selection,
+    }
+}
+
+fn date_pick_list_style(
+    _theme: &iced::Theme,
+    status: iced::widget::pick_list::Status,
+    chrome: WindowChrome,
+) -> iced::widget::pick_list::Style {
+    let border_color = match status {
+        iced::widget::pick_list::Status::Hovered
+        | iced::widget::pick_list::Status::Opened { .. } => chrome.accent,
+        iced::widget::pick_list::Status::Active => chrome.input_border,
+    };
+
+    iced::widget::pick_list::Style {
+        text_color: chrome.text,
+        placeholder_color: chrome.input_placeholder,
+        handle_color: chrome.muted_text,
+        background: iced::Background::Color(chrome.input_background),
+        border: iced::Border {
+            color: border_color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+    }
+}
+
+fn date_pick_list_menu_style(
+    _theme: &iced::Theme,
+    chrome: WindowChrome,
+) -> iced::widget::overlay::menu::Style {
+    iced::widget::overlay::menu::Style {
+        background: iced::Background::Color(chrome.panel_background),
+        border: iced::Border {
+            color: chrome.panel_border,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        text_color: chrome.text,
+        selected_text_color: chrome.accent_soft_text,
+        selected_background: iced::Background::Color(chrome.accent_soft),
+        shadow: iced::Shadow {
+            color: chrome.panel_shadow,
+            offset: iced::Vector::new(0.0, 2.0),
+            blur_radius: 8.0,
+        },
     }
 }
