@@ -79,8 +79,21 @@ impl AlarmManager {
                 Ok(file) => {
                     let mut manager = Self { alarms: file.alarm };
 
-                    if let Some(suspended_at) = file.suspended_at {
-                        manager.resume_after_restart(suspended_at, Local::now());
+                    let resumed_at = Local::now();
+                    let mut changed = false;
+
+                    for alarm in &mut manager.alarms {
+                        if alarm.restore_from_restart_snapshot(resumed_at) {
+                            changed = true;
+                            continue;
+                        }
+
+                        if let Some(suspended_at) = file.suspended_at {
+                            changed |= alarm.resume_after_restart(suspended_at, resumed_at);
+                        }
+                    }
+
+                    if changed {
                         manager.save();
                     }
 
@@ -132,8 +145,13 @@ impl AlarmManager {
                 return;
             }
         }
+        let snapshot_at = Local::now();
         let file = AlarmFile {
-            alarm: self.alarms.clone(),
+            alarm: self
+                .alarms
+                .iter()
+                .map(|alarm| alarm.persisted_for_restart(snapshot_at))
+                .collect(),
             suspended_at,
         };
         match toml::to_string_pretty(&file) {
@@ -174,6 +192,18 @@ impl AlarmManager {
             .iter()
             .filter(|alarm| alarm.can_pause(now))
             .count()
+    }
+
+    pub fn has_live_restartable_reminders(&self) -> bool {
+        self.alarms.iter().any(|alarm| {
+            alarm.enabled
+                && !alarm.is_paused()
+                && !alarm.is_completed()
+                && matches!(
+                    alarm.kind,
+                    AlarmKind::Timer { .. } | AlarmKind::RepeatingInterval { .. }
+                )
+        })
     }
 
     /// Active alarms/timers projected for compact clock-face display.
@@ -297,22 +327,6 @@ impl AlarmManager {
         self.alarms
             .retain(|alarm| alarm.kind.is_recurring() || !alarm.fired);
         self.save();
-    }
-
-    fn resume_after_restart(
-        &mut self,
-        suspended_at: chrono::DateTime<Local>,
-        resumed_at: chrono::DateTime<Local>,
-    ) {
-        let mut changed = false;
-
-        for alarm in &mut self.alarms {
-            changed |= alarm.resume_after_restart(suspended_at, resumed_at);
-        }
-
-        if changed {
-            self.save();
-        }
     }
 
     // -- Tick check --------------------------------------------------------

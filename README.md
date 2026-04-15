@@ -10,6 +10,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Detached reminder detail window on hover so full reminder text stays readable off the dial
 - Transparent, borderless main window intended to sit below normal windows
 - Drag-to-move clock placement with saved position
+- Saved placement clamped back onto the nearest active monitor on restart when displays change
 - Right-click settings window for theme, size, and display toggles
 - Four built-in themes: Classic, Dark, Minimal, Transparent
 - Separate clock opacity control so any built-in theme can be tuned from subtle transparency to fully opaque
@@ -58,6 +59,14 @@ bash ./scripts/run-dev-harness.sh
 ```
 
 That launcher stops only stale instances of this repo's `target/debug/rust-clock` binary before starting a fresh debug session. It does not touch the installed runtime in `~/.local/bin`.
+
+For a user-local install that also shows up reliably in desktop launchers, build the release binary and run:
+
+```bash
+./scripts/install-linux-user-local.sh
+```
+
+That install helper installs the desktop entry under `~/.local/share/applications` and writes absolute `Exec` and `TryExec` paths to `~/.local/bin/rust-clock`, which avoids launcher discovery issues on systems where `~/.local/bin` is not on the desktop session `PATH`.
 
 ## Windows Installer
 
@@ -123,6 +132,8 @@ The alarms panel supports:
 When an alarm fires, the current app behaviour is to play the built-in generated beep pattern and send a desktop notification.
 
 When you quit Rust Clock, active timers and alarms pause instead of continuing in the background. On the next launch, countdown timers and repeating interval timers resume from the remaining time they had when you quit, while one-shot alarms that were missed during shutdown are treated as missed rather than firing late.
+
+While Rust Clock is running, countdown timers and repeating interval reminders also keep lightweight restart snapshots on disk. That means an unexpected stop or crash can usually recover close to the last saved remaining time instead of dropping those reminders entirely.
 
 When reminders are active, the clock face keeps a compact summary on the dial and opens a separate reminder detail window on hover instead of layering long callouts over the clock face itself.
 

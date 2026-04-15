@@ -16,6 +16,10 @@ pub fn play_alarm_sound(custom_path: Option<&Path>) {
     std::thread::spawn(move || {
         if let Err(e) = play_sound_blocking(path.as_deref()) {
             eprintln!("Failed to play alarm sound: {e}");
+            crate::platform::send_notification(
+                "Rust Clock alarm sound failed",
+                &format!("The reminder fired, but audio playback failed: {e}"),
+            );
         }
     });
 }

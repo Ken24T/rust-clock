@@ -44,17 +44,18 @@ impl<'a> ContextMenu<'a> {
 
     fn build(self, chrome: WindowChrome) -> Element<'a, Message> {
         let heading = text("Rust Clock").size(14).color(chrome.text);
-        let version = container(
-            text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                .size(10)
-                .color(chrome.muted_text),
-        )
-        .width(Length::Fill)
-        .align_x(alignment::Horizontal::Right);
+        let version = text(format!("v{}", env!("CARGO_PKG_VERSION")))
+            .size(11)
+            .color(chrome.muted_text);
 
-        let header_row = row![heading, version]
-            .spacing(6)
-            .align_y(alignment::Vertical::Center);
+        let header_row = row![
+            heading,
+            container(version)
+                .width(Fill)
+                .align_x(alignment::Horizontal::Right)
+        ]
+        .spacing(6)
+        .align_y(alignment::Vertical::Center);
 
         let separator = container(text("").size(1))
             .width(Fill)

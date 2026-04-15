@@ -166,7 +166,9 @@ mod windows {
     impl SystemTrayHandle {
         pub fn shutdown(self) {
             unsafe {
-                let _ = PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
+                if PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) == 0 {
+                    eprintln!("Windows tray thread was already gone before shutdown request");
+                }
             }
             let _ = self.join_handle.join();
         }

@@ -453,6 +453,13 @@ pub enum PausedState {
     Suppressed,
 }
 
+/// Persisted restart snapshot for live countdown reminders.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum RestartSnapshot {
+    Countdown { remaining_secs: i64 },
+}
+
 // -- Recurrence ------------------------------------------------------------
 
 /// Supported day-of-week values for recurring schedules.
@@ -529,6 +536,8 @@ impl ScheduleWeekday {
     }
 }
 
+const MAX_RECURRENCE_LOOKAHEAD_DAYS: i64 = 400;
+
 /// Local calendar recurrence rules for repeating alarms/events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -562,7 +571,7 @@ impl RecurrenceRule {
             | Self::SelectedWeekdays { time, .. } => *time,
         };
 
-        for offset in 0..=400 {
+        for offset in 0..=MAX_RECURRENCE_LOOKAHEAD_DAYS {
             let date = after.date_naive() + Duration::days(offset);
             if !self.matches_date(date) {
                 continue;
@@ -778,6 +787,9 @@ pub struct Alarm {
     /// Whether the reminder is temporarily paused by the user.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused: Option<PausedState>,
+    /// Persisted live countdown state used to restore timers after restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    restart_snapshot: Option<RestartSnapshot>,
     /// Whether this alarm is active.
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -800,6 +812,7 @@ impl Alarm {
             alert,
             message: None,
             paused: None,
+            restart_snapshot: None,
             enabled: true,
             fired: false,
         }
@@ -1025,6 +1038,57 @@ impl Alarm {
 
                 true
             }
+        }
+    }
+
+    fn persisted_for_restart(&self, snapshot_at: DateTime<Local>) -> Self {
+        let mut persisted = self.clone();
+        persisted.restart_snapshot = self.restart_snapshot(snapshot_at);
+        persisted
+    }
+
+    fn restart_snapshot(&self, snapshot_at: DateTime<Local>) -> Option<RestartSnapshot> {
+        if !self.enabled || self.is_paused() || self.is_completed() {
+            return None;
+        }
+
+        match &self.kind {
+            AlarmKind::Timer { target, .. } => Some(RestartSnapshot::Countdown {
+                remaining_secs: (*target - snapshot_at).num_seconds().max(1),
+            }),
+            AlarmKind::RepeatingInterval { next_target, .. } => Some(RestartSnapshot::Countdown {
+                remaining_secs: (*next_target - snapshot_at).num_seconds().max(1),
+            }),
+            AlarmKind::AtTime { .. } | AlarmKind::RepeatingSchedule { .. } => None,
+        }
+    }
+
+    fn restore_from_restart_snapshot(&mut self, resumed_at: DateTime<Local>) -> bool {
+        let Some(snapshot) = self.restart_snapshot.take() else {
+            return false;
+        };
+
+        if !self.enabled || self.is_paused() {
+            return false;
+        }
+
+        match (&mut self.kind, snapshot) {
+            (AlarmKind::Timer { target, .. }, RestartSnapshot::Countdown { remaining_secs }) => {
+                if self.fired {
+                    return false;
+                }
+
+                *target = resumed_at + Duration::seconds(remaining_secs.max(1));
+                true
+            }
+            (
+                AlarmKind::RepeatingInterval { next_target, .. },
+                RestartSnapshot::Countdown { remaining_secs },
+            ) => {
+                *next_target = resumed_at + Duration::seconds(remaining_secs.max(1));
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1367,6 +1431,30 @@ mod tests {
     }
 
     #[test]
+    fn one_shot_timer_resumes_from_persisted_restart_snapshot() {
+        let snapshot_at = Local::now();
+        let resumed_at = snapshot_at + Duration::hours(2);
+        let alarm = Alarm::new(
+            "Tea",
+            AlarmKind::Timer {
+                duration_secs: 600,
+                target: snapshot_at + Duration::minutes(8),
+            },
+            AlertAction::Both,
+        );
+        let mut persisted = alarm.persisted_for_restart(snapshot_at);
+
+        assert!(persisted.restore_from_restart_snapshot(resumed_at));
+
+        let remaining = (persisted.kind.target() - resumed_at).num_seconds();
+        assert!(
+            remaining >= 479 && remaining <= 481,
+            "remaining was {remaining}"
+        );
+        assert!(!persisted.fired);
+    }
+
+    #[test]
     fn repeating_interval_resumes_from_remaining_time_after_restart() {
         let paused_at = Local::now();
         let resumed_at = paused_at + Duration::minutes(20);
@@ -1387,6 +1475,30 @@ mod tests {
             "remaining was {remaining}"
         );
         assert!(!alarm.fired);
+    }
+
+    #[test]
+    fn repeating_interval_resumes_from_persisted_restart_snapshot() {
+        let snapshot_at = Local::now();
+        let resumed_at = snapshot_at + Duration::hours(3);
+        let alarm = Alarm::new(
+            "Stretch",
+            AlarmKind::RepeatingInterval {
+                interval_secs: 900,
+                next_target: snapshot_at + Duration::minutes(4),
+            },
+            AlertAction::Both,
+        );
+        let mut persisted = alarm.persisted_for_restart(snapshot_at);
+
+        assert!(persisted.restore_from_restart_snapshot(resumed_at));
+
+        let remaining = (persisted.kind.target() - resumed_at).num_seconds();
+        assert!(
+            remaining >= 239 && remaining <= 241,
+            "remaining was {remaining}"
+        );
+        assert!(!persisted.fired);
     }
 
     #[test]
@@ -1437,6 +1549,16 @@ mod tests {
         assert_eq!(next.weekday(), chrono::Weekday::Mon);
         assert_eq!(next.time().hour(), 9);
         assert_eq!(next.time().minute(), 0);
+    }
+
+    #[test]
+    fn selected_weekdays_schedule_without_days_has_no_occurrence() {
+        let rule = RecurrenceRule::SelectedWeekdays {
+            weekdays: Vec::new(),
+            time: NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"),
+        };
+
+        assert!(rule.next_after(Local::now()).is_none());
     }
 
     #[test]

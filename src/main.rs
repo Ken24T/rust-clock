@@ -22,11 +22,15 @@ mod tray;
 use iced::keyboard;
 use iced::widget::{canvas, operation};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
+use std::time::Instant;
 
 /// Number of early ticks during which Linux window hints are retried.
 const STARTUP_HINT_ATTEMPTS: u8 = 20;
 /// Retry interval for Linux startup window hints.
 const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
+/// Smooth-second animation cadence. 67 ms is approximately 15 fps.
+const SMOOTH_SECONDS_INTERVAL_MS: u64 = 67;
+const RECOVERY_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 const POPUP_GAP: f32 = 18.0;
 const POPUP_MARGIN: f32 = 12.0;
 use uuid::Uuid;
@@ -157,6 +161,7 @@ struct ClockApp {
     hover_window_content: Option<HoverWindowContent>,
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
+    last_recovery_snapshot_at: Option<Instant>,
 }
 
 /// Messages produced by the application.
@@ -295,6 +300,7 @@ impl ClockApp {
             hover_window_content: None,
             tray_handle,
             tray_receiver,
+            last_recovery_snapshot_at: None,
         };
         app.sync_clock_face_active_items();
         app
@@ -312,15 +318,22 @@ impl ClockApp {
         self.sync_clock_face_active_items();
     }
 
+    fn apply_saved_main_window_layout(&mut self) -> Task<Message> {
+        let (position, size) = main_window_layout(&self.config);
+        let rounded_position = (position.x.round() as i32, position.y.round() as i32);
+
+        if self.config.position.is_some() && self.config.position != Some(rounded_position) {
+            self.config.position = Some(rounded_position);
+            self.save_config();
+        }
+
+        window::oldest().and_then(move |id| {
+            Task::batch([window::move_to(id, position), window::resize(id, size)])
+        })
+    }
+
     fn apply_size_change(&mut self) -> Task<Message> {
-        let size = self.config.size;
-        let clamped_position = clamp_clock_position(
-            self.config
-                .position
-                .map(|(x, y)| Point::new(x as f32, y as f32))
-                .unwrap_or(Point::ORIGIN),
-            size as f32,
-        );
+        let (clamped_position, window_size) = main_window_layout(&self.config);
 
         self.config.position = Some((
             clamped_position.x.round() as i32,
@@ -331,7 +344,7 @@ impl ClockApp {
         let mut tasks = vec![window::oldest().and_then(move |id| {
             Task::batch([
                 window::move_to(id, clamped_position),
-                window::resize(id, Size::new(size as f32, size as f32)),
+                window::resize(id, window_size),
             ])
         })];
 
@@ -368,6 +381,10 @@ impl ClockApp {
     fn save_config(&self) {
         if let Err(e) = self.config.save() {
             eprintln!("Failed to save config: {e}");
+            platform::send_notification(
+                "Rust Clock could not save settings",
+                &format!("Settings were not written to disk: {e}"),
+            );
         }
     }
 
@@ -418,13 +435,8 @@ impl ClockApp {
             self.hover_window_content = Some(content);
             Task::batch([window::move_to(id, position), window::resize(id, size)])
         } else {
+            let (id, open_task) = window::open(hover_window_settings(&content, &self.config));
             self.hover_window_content = Some(content);
-            let (id, open_task) = window::open(hover_window_settings(
-                self.hover_window_content
-                    .as_ref()
-                    .expect("hover content should exist before opening window"),
-                &self.config,
-            ));
             self.hover_window = Some(id);
             open_task.map(Message::HoverWindowOpened)
         }
@@ -649,6 +661,9 @@ impl ClockApp {
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         self.tray_receiver = None;
+                        if let Some(tray_handle) = self.tray_handle.take() {
+                            tray_handle.shutdown();
+                        }
                         break;
                     }
                 }
@@ -689,7 +704,10 @@ impl ClockApp {
                     Task::none()
                 } else {
                     self.startup_hint_attempts += 1;
-                    window::oldest().and_then(apply_startup_window_hints)
+                    Task::batch([
+                        self.apply_saved_main_window_layout(),
+                        window::oldest().and_then(apply_startup_window_hints),
+                    ])
                 }
             }
             Message::ControlWindowOpened(id) => {
@@ -702,6 +720,19 @@ impl ClockApp {
                 // Check alarms on each tick.
                 let fired = self.alarm_manager.check_and_fire();
                 self.sync_clock_face_active_items();
+                if self.alarm_manager.has_live_restartable_reminders() {
+                    let now = Instant::now();
+                    let due = self
+                        .last_recovery_snapshot_at
+                        .is_none_or(|last| now.duration_since(last) >= RECOVERY_SNAPSHOT_INTERVAL);
+
+                    if due {
+                        self.alarm_manager.save();
+                        self.last_recovery_snapshot_at = Some(now);
+                    }
+                } else {
+                    self.last_recovery_snapshot_at = None;
+                }
                 for alarm in fired {
                     fire_alarm(&alarm);
                 }
@@ -724,7 +755,11 @@ impl ClockApp {
                 if Some(id) == self.control_window || Some(id) == self.hover_window {
                     Task::none()
                 } else {
-                    self.config.position = Some((point.x as i32, point.y as i32));
+                    let clamped_position = clamp_clock_position(point, self.config.size as f32);
+                    self.config.position = Some((
+                        clamped_position.x.round() as i32,
+                        clamped_position.y.round() as i32,
+                    ));
                     self.save_config();
 
                     if let Some(hover_id) = self.hover_window {
@@ -1011,7 +1046,7 @@ impl ClockApp {
 
     fn subscription(&self) -> Subscription<Message> {
         let tick_interval = if self.config.smooth_seconds {
-            std::time::Duration::from_millis(16) // ~60 fps
+            std::time::Duration::from_millis(SMOOTH_SECONDS_INTERVAL_MS) // ~15 fps
         } else {
             std::time::Duration::from_secs(1)
         };
@@ -1085,6 +1120,11 @@ impl ClockApp {
 fn focus_clock_window() -> Task<Message> {
     window::oldest()
         .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
+}
+
+fn main_window_layout(config: &AppConfig) -> (Point, Size) {
+    let size = config.size as f32;
+    (main_window_position(config), Size::new(size, size))
 }
 
 fn main_window_position(config: &AppConfig) -> Point {
