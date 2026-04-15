@@ -1,7 +1,7 @@
 {
-  "branch": "chore/apply-tctbp",
-  "commit": "857544cb4607853ba24d5db96e438b3637879fdb",
-  "updatedAt": "2026-04-14T05:35:48Z",
-  "version": "1.5.1",
-  "tag": "1.5.1"
+  "branch": "main",
+  "commit": "fbfd46d13eb2ed04a820c050715fccc5fc8bfcb9",
+  "updatedAt": "2026-04-15T05:33:15Z",
+  "version": "1.5.2",
+  "tag": "1.5.2"
 }
