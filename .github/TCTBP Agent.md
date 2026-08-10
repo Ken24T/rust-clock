@@ -1,387 +1,404 @@
-# Rust Clock — TCTBP Agent
+# TCTBP-Web Agent
 
 ## Purpose
 
-This agent governs milestone, checkpointing, publishing, handover, resume, sync, status, recovery, and deployment actions for Rust Clock.
+This agent governs **milestone, checkpointing, shipping, hotfix, sync, promotion, deployment, and scaffold actions** for repositories that adopt the TCTBP-Web workflow. It exists to safely execute the **TCTBP workflow** with strong guard rails, auditability, human approval at irreversible steps, and deterministic Node.js runners for every workflow.
 
-Primary objective: no code is ever lost while keeping local and remote repository state validated, recoverable, and easy to resume on another machine.
+Primary objective: **no code is ever lost** while keeping local and remote repositories in a validated, recoverable state.
 
-This workflow is for explicit operator actions such as `ship`, `checkpoint`, `publish`, `handover`, `resume`, `deploy`, `status`, `abort`, `branch`, and `branch <name>`. It is not for normal feature implementation work.
+This agent is **not** for exploratory coding or refactoring. It is activated only when the user signals a configured TCTBP trigger (for example `ship`, `checkpoint`, `handover`, `resume`, `promote staging`, `promote review`, `hotfix`, `deploy dev`, `run tests`, `ticket create`, `version status`, `rollback`, `release`, or `scaffold`).
 
-Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md).
+Quick reference: see [TCTBP Cheatsheet.md](TCTBP%20Cheatsheet.md) for the short operator view of triggers, gates, and repo-specific expectations.
 
-## Authoritative Precedence
+---
 
-- `.github/TCTBP.json` is the source of truth when this document and the JSON profile differ.
-- This file explains behaviour and guard rails when the JSON profile does not capture enough safety context.
-- `.github/TCTBP Cheatsheet.md` is the short operator summary.
-- `.github/agents/TCTBP.agent.md` is the runtime entry point for explicit TCTBP trigger routing.
-- `.github/copilot-instructions.md` contains repo-specific engineering guidance and should stay aligned with the workflow files and runtime files.
+## Project Profile (How this agent adapts per repo)
 
-## Repo Profile
+**Authoritative precedence:**
 
-Rust Clock is a Rust + iced application with Linux-first desktop-widget behaviour and an early Windows baseline.
+- `TCTBP.json` is the source of truth when this document and the JSON profile differ.
+- This document defines defaults and behaviour only when a rule is not specified in `TCTBP.json`.
 
-Repo-specific operational values that must be preserved:
+Before running workflow steps, the agent must establish a **Project Profile** using (in order):
 
-- default branch: `main`
-- version source: `Cargo.toml` field `package.version`
-- tag format: plain semver tags such as `1.2.2`, not `v1.2.2`
-- format gate: `cargo fmt -- --check`
-- lint gate: `cargo clippy -- -D warnings`
-- test gate: `cargo test`
-- normal build gate: `cargo build`
-- release build: `cargo build --release`
-- release build policy: use the release build for explicit installation, packaging, or deployment work, not as the default SHIP gate
-- preferred interactive review launcher: `bash ./scripts/run-dev-harness.sh`
-- user-facing docs commonly reviewed: `README.md`, `docs/user-guide.md`, `docs/windows-installer.md`, `PLAN.md`, and feature-specific docs under `docs/`
-- locale: Australian English for user-facing text and comments
+1. `TCTBP.json`
+2. `README.md`, or `AGENTS.md` if present
+3. `package.json` and any relevant project manifests
+4. If still unclear, ask the user to confirm commands **once** and then proceed
 
-## Core Invariants
+A Project Profile defines:
 
-1. Verification must pass before irreversible actions unless `.github/TCTBP.json` explicitly allows a docs/infra-only shortcut.
-2. Problems must be zero before any release, publication-linked, or shared-state commit, unless `.github/TCTBP.json` explicitly allows a local-only checkpoint commit to preserve work first.
-3. Protected Git actions such as push, force-push, branch deletion, history rewrite, or remote modification require explicit approval unless granted by the active workflow trigger.
-4. Tags must correspond exactly to the version committed in `Cargo.toml` and point to the commit that introduced that version.
-5. No-code-loss takes priority over workflow completion.
-6. Do not use hard reset, destructive checkout, auto-rebase, or force-push as normal workflow shortcuts.
-7. Keep versioned artefacts, workflow files, runtime files, and documentation aligned.
-8. Use the normal build gate by default; reserve release builds for install, packaging, or deployment work.
+- How to run **tests**, **lint**, **build**, and **format** checks
+- Where and how to **bump version**
+- Tagging policy
+- Branch model (simple, staged, or long-lived-environment-branches)
+- Documentation impact rules and which docs must be reviewed for different change types
+- Deployment targets and post-deploy validation rules
 
-If any invariant fails, stop and explain the blocker.
+---
 
-## Supported Triggers
+## Core Invariants (Never Break)
 
-Supported workflow triggers are:
+1. **Verification before irreversible actions:** Tests and static checks must pass before commits, tags, bumps, or pushes (unless explicitly skipped by rule).
+2. **Problems count must be zero** before any release, publication-linked, or shared-state commit (interpreted as: build/lint/test diagnostics are clean), unless `TCTBP.json` explicitly allows a local-only checkpoint commit to preserve work first. For **docs/infra-only changesets**, this means editor/IDE diagnostics only — see `docsInfraPolicy` in `TCTBP.json`.
+3. **All non-destructive actions are allowed by default.**
+4. **Protected Git actions** (push, force-push, delete branch, rewrite history, modify remotes) require explicit approval.
+5. **Pull Requests are not required.** This workflow assumes a **single-developer model** with direct merges.
+6. **No secrets or credentials** may be introduced or committed.
+7. **User-facing text follows project locale** as defined by the repo profile.
+8. **Versioned artifacts must stay in sync.**
+9. **Tags must always correspond exactly to the bumped application version and point at the commit that introduced that version.**
+10. **No-code-loss rule:** preserving existing local and remote work takes precedence over completing a sync automatically.
+11. **No destructive sync operations:** handover, promote, and ship must never use `reset --hard`, destructive checkout, auto-rebase, or force-push as normal workflow shortcuts.
 
-- `ship`, `ship please`, `shipping`, `prepare release`
-- `checkpoint`, `checkpoint please`
-- `publish`, `publish please`
-- `deploy`, `deploy please`
-- `handover`, `handover please`
-- `resume`, `resume please`
-- `status`, `status please`
-- `abort`
-- `branch`
-- `branch <new-branch-name>`
+If any invariant fails, the agent must **stop immediately**, explain the failure, and wait for instructions.
 
-Do not treat a bare `tctbp` request as implicit permission to mutate repository state.
+---
 
-## Interactive Review Runs
+## Code-Loss Prevention
 
-- preferred launcher: `bash ./scripts/run-dev-harness.sh`
-- the launcher may stop stale instances of this repo's `target/debug/rust-clock` before starting a fresh review session
-- it must not target an installed runtime outside the repo build tree
-- plain `cargo run` remains valid when the hygiene step is intentionally not wanted
+These safeguards exist because a single destructive sync can silently delete files and lines of code. Any workflow that merges into a default or environment branch **must** run these checks.
+
+### Safety Snapshot (before every merge)
+
+Before merging **any** branch into a default or environment branch, create a lightweight safety tag:
+
+```
+git tag safety/<branch-name>-<YYYYMMDD> <target-branch>
+```
+
+This ensures the pre-merge state is always recoverable with a single `git checkout`.
+
+- Safety tags are local-only by default (not pushed unless the user requests it).
+- Safety tags are never deleted automatically.
+- If a safety tag for today already exists, append a counter: `safety/<branch>-<date>-2`.
+
+### Merge Deletion Audit (mandatory gate)
+
+After the merge completes but **before committing or pushing**, run a deletion audit. Thresholds are configured in `TCTBP.json` under `codeLossPrevention.mergeDeletionAudit`:
+
+| Condition | Action |
+|---|---|
+| 0 files deleted | Proceed silently |
+| 1–5 files deleted, <500 lines removed | Log the list, proceed with a note |
+| >5 files deleted **or** >500 lines removed | **STOP.** Display the full list of deleted files. Require explicit user confirmation. |
+| >20 files deleted **or** >2000 lines removed | **HARD STOP.** Display the list AND a warning. Always require confirmation. |
+
+### Pre-Push Deletion Audit
+
+Before any `git push`, compare the local branch against the remote. If the push would result in a **net deletion** (more lines removed than added across all files), warn the user.
+
+This is a **soft warning** (not a hard stop) — the user can proceed with normal push approval.
+
+---
+
+## Branch-To-Environment Model
+
+This repository supports two branch strategies, configured in `TCTBP.json` under `branchModel.strategy`:
+
+### Simple (`"simple"`)
+
+Single production branch (`main`). Suitable for template repos, libraries, and non-deployed projects. Promote and staging deploy are disabled.
+
+### Staged (`"staged"`)
+
+Three long-lived environment branches:
+
+- `development` (or configured working branch) — daily coding and internal verification
+- `staging` — field testing and review
+- `main` — production release branch
+
+Important operating rules:
+
+- `commit`, `checkpoint`, `publish`, and `handover` operate on the **current branch** only.
+- Promotion is a **merge step**, not a deployment step.
+- `deploy` never merges `development` into `staging` and never merges `staging` into `main`.
+- `ship` is reserved for `main` so version tags remain production release markers.
+- The `branch` convenience workflow closes short-lived task branches into the default branch, not between environment branches.
+
+---
+
+## Activation Signal
+
+Activate this agent only when the user explicitly uses a configured cue from `TCTBP.json` under `activation.triggers`, or uses the configured `branch` / `branch <new-branch-name>` command.
+
+In this repository, that means the explicit TCTBP, promote, deploy, gate, version, rollback, and scaffold triggers defined in `.github/TCTBP.json`.
+
+Do **not** auto-trigger based on context or guesses.
+
+---
+
+## Runner-First Architecture
+
+Every workflow has a deterministic Node.js runner. When a trigger maps to a runner in `TCTBP.json`, the agent should:
+
+1. Confirm the trigger and target with the user
+2. Execute the configured runner (`executionCommand` or `dryRunCommand`)
+3. Report the runner's output
+
+The runner enforces the workflow order, gates, invariants, and code-loss prevention checks exactly as configured. The agent should not reimplement workflow steps that the runner already handles.
+
+---
+
+## Scaffold Workflow
+
+Trigger: `scaffold` / `scaffold please` / `scaffold web` / `scaffold web please` / `new project` / `create project`
+
+Purpose: create a new web project with the full TCTBP-Web runtime surface pre-installed.
+
+Executable path: `node scripts/tctbp-run-scaffold.js`
+
+The scaffold interview asks 6 questions:
+
+1. **Project name** (required) — must be a valid npm package name
+2. **Target directory path** (required, absolute) — must not exist or must be empty
+3. **Working branch name** (default: `development`)
+4. **Branch strategy** (default: `staged`) — `"staged"` for deployed web apps, `"simple"` for libraries
+5. **Deploy target** (default: `none yet`) — `"Vercel"`, `"Netlify"`, `"Cloudflare Pages"`, `"Docker"`, or `"none yet"`
+6. **Test framework** (default: `vitest`) — `"vitest"`, `"jest"`, or `"none"`
+
+After the interview, the scaffold runner:
+
+1. Creates the project directory
+2. Writes the project skeleton (`package.json`, `tsconfig.json`, `.gitignore`, `README.md`)
+3. Copies the full TCTBP-Web runtime surface
+4. Generates a populated `TCTBP.json` profile
+5. Runs `git init` and creates the initial commit
+6. Creates the branch structure
+7. Checks out the working branch
+8. Smoke-tests the installed runners
+9. Prints the summary and recommended next steps
+
+The scaffolded project opens on the working branch, ready for `npm install` and development.
+
+---
 
 ## Docs/Infra-Only Detection
 
-A changeset is docs-only or infrastructure-only only when every changed file matches the repo rules in `.github/TCTBP.json`, for example:
+A changeset is classified as **docs-only or infrastructure-only** when **every** changed file matches one of the patterns in `docsInfraPolicy.filePatterns`.
 
-- `*.md`, `*.txt`, `*.rst`
-- `docs/**`
-- `.github/**`
-- `packaging/**`
-- `LICENSE*`, `CHANGELOG*`, `CONTRIBUTING*`
+Build manifests, package metadata, and runtime configuration that can affect execution are **not** treated as docs-only by default.
 
-Build manifests, installer definitions, desktop entries, and runtime configuration are not docs-only by default just because they are text files.
+When in doubt, treat the changeset as code.
+
+---
 
 ## Publish Workflow
 
 Trigger: `publish` / `publish please`
 
-Purpose: safely publish the current clean branch to origin without creating a release, bumping a version, creating a tag, or updating handover metadata.
+Purpose: safely publish the current clean branch to `origin` without creating a release, bumping a version, or creating a tag.
 
-Key rules:
+Executable path: `node scripts/tctbp-run-publish.js`
 
-- stop if `HEAD` is detached
-- stop if the working tree is dirty
-- fetch origin before deciding whether a push is required
-- create an upstream on first publication when the branch is otherwise clean and unpublished
-- stop if the branch is behind or diverged from origin
-- never create a version bump, tag, or metadata update as part of `publish`
+Typical use:
+
+- publish `development` as often as needed during active work
+- publish `staging` after promotion when preparing the staging environment
+- publish `main` when syncing released branch state that does not require deployment in the same step
+
+Behaviour (safe and minimal):
+
+1. **Preflight** — Report the current branch, working tree state, and upstream tracking state. Stop if `HEAD` is detached or the working tree is dirty.
+2. **Fetch and inspect remote state** — Fetch from `origin` with tags. Determine whether the current branch is ahead, behind, up to date, diverged, or unpublished.
+3. **Verification gate when policy requires it** — Run configured gates. If docs/infra-only, apply the lightweight path.
+4. **Publish the branch when needed** — Push if clean and ahead. Create upstream on first publish. Never bump version, create a tag, or deploy.
+5. **Verify sync** — Confirm local matches origin. Stop on discrepancy.
+6. **Summary** — Confirm branch name, upstream state, and that no release, merge, or deploy actions occurred.
+
+---
 
 ## Checkpoint Workflow
 
 Trigger: `checkpoint` / `checkpoint please`
 
-Purpose: create a durable local-only checkpoint commit on the current branch without changing version, tags, metadata, or remote state.
+Purpose: create a durable local-only checkpoint commit on the current branch without changing version, tags, metadata, deployment state, or remote state.
 
-Key rules:
+Executable path: `node scripts/tctbp-run-checkpoint.js`
 
-- stop if `HEAD` is detached
-- stop if the working tree is clean
-- stop if the working tree has unresolved conflicts or if a merge, rebase, cherry-pick, or revert is in progress
-- stage the current non-ignored tracked and untracked changes on the current branch
-- create a clearly marked local-only commit using the configured checkpoint message prefix
-- do not run heavyweight verification gates as a blocker for this workflow
-- if diagnostics are already available, they may be reported for awareness only
-- end with a concise four-column table covering the previous `HEAD`, new checkpoint commit, resulting working-tree state, upstream sync state, and explicit local-only outcome
-- emit that checkpoint table as a standalone Markdown block with a blank line before and after it
-- never push, create a tag, bump version, update handover metadata, or change branches as part of `checkpoint`
+Behaviour (safe and local-only):
 
-## Branch Workflow
+1. **Preflight** — Report branch and working tree. Stop if detached, clean, conflicted, or if a merge/rebase/cherry-pick/revert is in progress.
+2. **Inspect** — Summarise tracked and non-ignored untracked changes. Make explicit that nothing will be pushed.
+3. **Stage** — Stage all non-ignored changes. Never discard or overwrite.
+4. **Commit** — Create a clearly marked local-only commit with the configured checkpoint message prefix. Do not run heavyweight verification.
+5. **Summary** — Render the checkpoint summary table as a standalone Markdown block. Confirm the commit SHA and message. Explicitly state that no push, tag, version bump, metadata update, or branch switch occurred.
 
-Trigger: `branch` or `branch <new-branch-name>`
-
-Purpose: close out the current branch safely and either stop on `main` or create the next branch without losing code.
-
-Key rules:
-
-- stop if `HEAD` is detached
-- validate the requested branch name before mutating anything when a new branch was requested
-- stop if the target branch already exists locally or on origin
-- stop if the source branch is dirty and SHIP is declined
-- if the source branch is dirty and SHIP is declined, recommend `checkpoint`, then `publish` or `handover`, before retrying `branch`
-- stop if the source branch is ahead, behind, diverged, or otherwise unpublished relative to its upstream
-- fast-forward local `main` when clean and behind origin
-- ask for explicit confirmation before merging a non-default branch back into `main`
-- treat merge-to-`main` as the expected default outcome, but stop if that merge is explicitly declined
-- verify the source branch tip is reachable from `main` before optional cleanup
-- in closeout-only mode, stop on the updated default branch once closeout is complete
-- in next-branch mode, create and switch to the requested new branch from the updated default branch
-- require explicit approval for push and branch deletion
-
-Never use stash, reset, rebase, force-push, or destructive checkout as part of the branch workflow.
+---
 
 ## Handover Workflow
 
-Trigger: `handover` / `handover please`
+Trigger: `handover` / `handover please` / `handover local` / `handover local please`
 
-Purpose: safely checkpoint and publish the current work branch at end of day, then refresh the handover metadata branch so another machine can resume from a deterministic shared state.
+Purpose: safely checkpoint and sync the active branch so development can continue on another machine.
 
-Scope:
+Executable path: `node scripts/tctbp-run-handover.js`
 
-- syncs the current work branch
-- syncs relevant tags when needed
-- maintains the metadata branch `tctbp/handover-state`
-- does not attempt to reconcile every branch in the repository
-- does not merge the current work branch into `main` as part of ordinary multi-machine sync
+The `handover local` variant creates a local-only checkpoint without pushing to origin.
 
-Handover metadata:
+### Note Requirement (Automatic)
 
-- metadata branch: `tctbp/handover-state`
-- metadata file: `.github/TCTBP_STATE.json`
-- metadata is refreshed after the current branch is safely published
-- the metadata branch is never treated as a work branch candidate
+**Every handover invocation MUST include a session narrative** so `orient` / `resume` can recover full context — not just git stats.
 
-Key safety rules:
+The note is resolved in this order:
+1. `--note "<markdown>"` — user-provided text (highest priority)
+2. `--note-file <path>` — agent writes session context to a temp file, passes the path
+3. Auto-generated from git commit messages (fallback)
 
-- stop if `HEAD` is detached
-- preserve dirty unpublished work through a durable checkpoint when necessary
-- a recent matching standalone `checkpoint` commit may be reused instead of creating another one
-- allow fast-forward only when local is clean and behind
-- stop on divergence rather than guessing
-- never auto-merge or auto-rebase as part of reconciliation
-- update the metadata branch using a secondary worktree or another non-destructive mechanism
-- end with a concise four-column handover summary table emitted as a standalone Markdown block with a blank line before and after it
-- add a short completion line after the table confirming the handed-over branch and commit
+**Agent procedure when the user does not provide a note:**
+1. Compose a 2–5 sentence narrative from the session's chat context: what was done, key design decisions, gotchas encountered, and unfinished items.
+2. Write the narrative to a temp file: `/tmp/tctbp-handover-note-<timestamp>.md`
+3. Invoke the runner: `node scripts/tctbp-run-handover.js --note-file /tmp/tctbp-handover-note-<timestamp>.md`
+4. Clean up the temp file after the runner completes.
 
-## Resume Workflow
-
-Trigger: `resume` / `resume please`
-
-Purpose: restore the intended work branch at start of day by consulting handover metadata first, preserving current local unpublished work when a safe branch switch would otherwise strand it, and reconciling only through non-destructive checkout and fast-forward operations.
-
-Key safety rules:
-
-- stop if `HEAD` is detached
-- consult metadata before arbitrary branch-recency inference
-- prefer metadata over an arbitrary clean non-default branch
-- detect when switching to the handed-over branch would strand current local unpublished work
-- ask for confirmation before creating any local-only preserve step during `resume`
-- preserve dirty current-branch work with a local checkpoint before switching when that is safe
-- preserve a clean-but-ahead current branch with a local rescue branch before switching when that is safe
-- create a local tracking branch from remote when the intended branch is published but missing locally
-- allow fast-forward only when the selected branch is clean and behind
-- stop when preserve-local handling would require publication, when the selected branch is ahead or diverged, or when the state is otherwise ambiguous
-
-## Status Workflow
-
-Trigger: `status` / `status please`
-
-Purpose: provide a read-only operator snapshot of the repo.
+- If the user provides their own note text inline (e.g., `handover please --note "..."`), use it verbatim and skip the file step.
+- The only exception is `--no-continuation`, which skips the continuation file entirely.
 
 Behaviour:
 
-- fetch remote state first
-- the first user-visible output block must be a four-column table using `Origin`, `Local`, `Status`, and `Action(s)`
-- emit that status table as a standalone Markdown block with a blank line before and after it
-- include branch/upstream state, head commit, default-branch state, tag state, ahead/behind counts, working tree state, version source, metadata state, and whether `resume`, `checkpoint`, `publish`, `ship`, or `handover` is recommended
-- never mutate the repo from `status`
+1. **Preflight** — Report branch and working tree. Stop if `HEAD` is detached or a git operation is in progress. Run the runtime advisory to report active dev servers.
+2. **Stage and commit** — Preserve dirty work. If already clean, skip.
+3. **Verification** — Run gates appropriate to the change type. Skip heavy gates for docs/infra-only.
+4. **Docs impact** — Assess and record before committing.
+5. **Push** — Push the active branch. Push tags only when a SHIP occurred on `main`. Skip push for `handover local`.
+6. **Verify sync** — Confirm branch matches origin. Stop on discrepancy.
+7. **Summary** — Render the handover summary table as a standalone Markdown block, followed by a completion line naming the handed-over branch and commit.
 
-## Abort Workflow
+Handover never merges into staging or main as part of the sync flow. Code-loss safeguards still apply to any merge step within handover.
 
-Trigger: `abort`
-
-Purpose: inspect and recover safely from a partially completed workflow.
-
-Check for states such as:
-
-- version bumped without matching tag
-- tag created but not pushed
-- branch pushed while handover metadata is stale
-- metadata pushed while the target branch is unpublished
-- merge in progress
-- local/remote tag drift
-- changelog updated without a matching version bump
-
-Abort must inspect first, propose recovery second, and execute only explicitly approved actions.
-
-## Deploy Workflow
-
-Trigger: `deploy` / `deploy please`
-
-Purpose: build a runtime-ready artefact or packaging output and install or publish it safely.
-
-General rules:
-
-- stop if `HEAD` is detached
-- require a clean working tree
-- require a synced branch
-- use `cargo build --release` for deployment work
-- review packaging and install docs impact before mutating deployment targets
-- validate the deployed result rather than merely copying files
-
-Repo-specific deploy targets:
-
-### `linux-local-runtime`
-
-- build: `cargo build --release`
-- install: `sudo install -Dm755 target/release/rust-clock /usr/local/bin/rust-clock`
-- post-deploy validation: compare `sha256sum target/release/rust-clock /usr/local/bin/rust-clock`
-
-### `linux-user-local`
-
-- build: `cargo build --release`
-- install: `./scripts/install-linux-user-local.sh`
-- post-deploy validation: confirm the binary exists and the desktop entry resolves `Exec` to `~/.local/bin/rust-clock`
-
-### `windows-installer`
-
-- build/package: `pwsh -File .\installer\windows\build-installer.ps1`
-- expected output: versioned installer under `dist/windows/`
-- review: `docs/windows-installer.md`, `installer/windows/build-installer.ps1`, `installer/windows/rust-clock.iss`
-
-If the requested deployment target is not one of these explicit cases, stop and ask rather than guessing.
+---
 
 ## SHIP Workflow
 
 Trigger: `ship` / `ship please` / `shipping` / `prepare release`
 
-Purpose: create a formal shipped version only from a clean, fetched branch.
+Purpose: create a formal shipped production version from a clean, fetched `main` branch.
 
-Workflow order:
+Executable path: `node scripts/tctbp-run-ship.js --no-docs-impact "<reason>" --yes`
 
-1. preflight
-2. verify
-3. problems
-4. docs impact
-5. bump
-6. commit
-7. changelog when present
-8. tag
-9. push
+Ship is reserved for `main` so version tags remain production release markers. The workflow:
 
-Preflight guard rails:
+1. **Preflight** — Confirm branch is `main`, working tree is clean, fetch origin, render the ship snapshot table.
+2. **Verify** — Run configured gates. Stop on failure.
+3. **Problems** — Confirm diagnostics are clean.
+4. **Docs Impact** — Assess and record.
+5. **Bump** — Increment version in all configured `versionFiles`.
+6. **Commit** — Stage and commit the release changes.
+7. **Tag** — Create the `v{version}` tag pointing at the release commit.
+8. **Push** — Push the branch and tag to origin.
 
-- fetch origin when needed
-- stop if `HEAD` is detached
-- allow first publication from a clean unpublished branch
-- stop if the branch is behind or diverged from origin
-- stop if the working tree is dirty
-- render a release-focused four-column snapshot table before mutating anything
+Patch bump behaviour is controlled by `versioning.patchEveryShip` and `versioning.patchEveryShipForDocsInfrastructureOnly`. Minor and major bumps are explicit release decisions on `main`.
 
-Verify and build policy:
+### Journaled release orchestration
 
-- normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
-- use `cargo build --release` only when the user explicitly requests installation or deployment work, or when the deploy workflow requires it
-- docs/infra-only changes may skip heavyweight code gates according to `.github/TCTBP.json`, but still require editor diagnostics and docs impact assessment
+For staged projects, `scripts/tctbp-run-release.js` composes deploy, promote, and ship into a journaled workflow. Each stage records atomic evidence under the configured `releaseState.path`, including the candidate commit and tree. Use `--resume` after an interrupted workflow; resume revalidates the candidate and shipped tag before continuing. The release journal is ignored by Git and must never be treated as a release artefact.
 
-Versioning rules:
+The generic runner does not assume a backup format, service manager, runtime storage layout, or restore rehearsal. Downstream projects must provide those integrations through their own profile and adapters. DDRE-specific backup and restore runners are not part of TCTBP-Web.
 
-- patch bump behaviour is controlled by `.github/TCTBP.json`
-- in this repo, docs-only and infrastructure-only ships do not bump by default
-- first SHIP on a `feature/` branch gets a minor bump instead of a patch bump
-- major bump only by explicit instruction
-- apply version changes to `Cargo.toml` before committing
+---
 
-Tagging rules:
+## Promote Workflow
 
-- use plain semver tags such as `1.2.2`
-- one tag per shipped commit
-- skip tagging when no version bump occurs
+Trigger: `promote staging` / `promote production` / `promote prod`
 
-Docs impact rules:
+Purpose: explicitly merge the current source branch into the target environment branch with verification gates, safety snapshots, and a mandatory merge deletion audit.
 
-- `README.md`, `docs/user-guide.md`, and `PLAN.md` for user-visible changes
-- `docs/windows-installer.md`, `installer/windows/build-installer.ps1`, and `installer/windows/rust-clock.iss` for Windows packaging changes
-- `assets/rust-clock.desktop` for Linux desktop integration changes
+Executable path: `node scripts/tctbp-run-promote.js <staging|production> --no-docs-impact "<reason>"`
 
-## Repo-Specific Preservation Checklist
+**`promote staging`** (development → staging):
+- Verifies and syncs development, creates a safety snapshot of staging, merges development into staging, runs the deletion audit, verifies and builds staging, publishes staging to origin, returns to development.
 
-When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
+**`promote production`** (staging → main):
+- Verifies staging, creates a safety snapshot of main, merges staging into main, runs the deletion audit, verifies main. Does NOT push main — `ship` and `deploy production` are separate explicit workflows. Stays on main.
 
-- plain semver release tags with no `v` prefix
-- `Cargo.toml` as version source
-- `cargo build` as the default SHIP build gate
-- `cargo build --release` only for explicit deployment/install work
-- the dev harness launcher and its stale-process protections
-- Linux and Windows deployment targets and docs paths
-- Australian English conventions
+Promotion is a merge workflow, not a deploy workflow. When `branchModel.strategy` is `"simple"`, promote is disabled.
 
-Preflight guard rails:
+---
 
-- fetch origin when needed
-- stop if `HEAD` is detached
-- allow first publication from a clean unpublished branch
-- stop if the branch is behind or diverged from origin
-- stop if the working tree is dirty
-- render a release-focused four-column snapshot table before mutating anything
+## Hotfix Workflow
 
-Verify and build policy:
+Trigger: `hotfix` / `hotfix start` / `hotfix finish` / `emergency fix`
 
-- normal SHIP gate: `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo build`
-- use `cargo build --release` only when the user explicitly requests installation, packaging, or deployment work, or when the deploy workflow requires it
-- docs/infra-only changes may skip heavyweight code gates according to `.github/TCTBP.json`, but still require editor diagnostics and docs impact assessment
+Purpose: emergency-lane production fix that bypasses the normal promote-review/promote-production chain. Creates a `hotfix/*` branch from `main`, merges it into `main`, ships a patch release, and backports the new `main` into the pre-production and working branches.
 
-Versioning rules:
+Executable paths:
+- `node scripts/tctbp-run-hotfix.js start <name>` — create `hotfix/<name>` from the production branch
+- `node scripts/tctbp-run-hotfix.js finish --no-docs-impact "<reason>"` — merge, ship, and backport
 
-- patch bump on every SHIP except docs-only or infrastructure-only changes
-- first SHIP on a `feature/` branch gets a minor bump instead of a patch bump
-- major bump only by explicit instruction
-- apply version changes to `Cargo.toml` before committing
+Notes:
+- `start` requires the current branch to be the production branch with a clean working tree.
+- `finish` requires the current branch to be a `hotfix/*` branch with a clean working tree.
+- `finish` runs verification gates before merging and ships with `--bump patch` by default.
+- `finish` pushes `main` (via `ship`), then backports to the pre-production and working branches and pushes those.
+- After `finish`, the local hotfix branch is deleted and the user is returned to the working branch.
 
-Tagging rules:
+---
 
-- use plain semver tags like `1.2.2`
-- one tag per shipped commit
-- skip tagging when no version bump occurs
+## Deploy Workflow
 
-Docs impact rules:
+Trigger: `deploy dev` / `deploy development` / `deploy staging` / `deploy prod` / `deploy production`
 
-- `README.md` and `docs/user-guide.md` for user-visible, UI, or settings changes
-- `docs/windows-installer.md` and installer assets for packaging changes
-- `PLAN.md` and feature-specific planning docs for roadmap/status changes
-- if no docs changes are required, record `No docs impact` with a short reason
+Purpose: deploy the current environment branch to its mapped runtime environment. Never promotes code between branches.
 
-## Summary Table Consistency
+Executable paths:
+- `node scripts/tctbp-run-deploy.js dev --no-docs-impact "<reason>"`
+- `node scripts/tctbp-run-deploy.js staging --no-docs-impact "<reason>"`
+- `node scripts/tctbp-run-deploy.js production --no-docs-impact "<reason>"`
 
-For SHIP, handover, and status tables:
+Per-target behaviour:
 
-- columns must be `Origin`, `Local`, `Status`, and `Action(s)`
-- use `n/a` when there is no meaningful origin-side value
-- keep `Status` diagnostic, not narrative
-- keep `Action(s)` concrete and short
+| Target | Branch | Sync strategy | Can commit? |
+|---|---|---|---|
+| `dev` | `development` | commit-and-publish-current-branch-when-needed | Yes (with explicit dirty-sync confirmation) |
+| `staging` | `staging` | push-clean-branch-when-needed | No (must already be clean) |
+| `production` | `main` | require-already-published-shipped-branch | No |
 
-## Repo-Specific Preservation Notes
+---
 
-When updating these workflow files, preserve the following local choices unless the user explicitly changes them:
+## Resume, Abort, Gate, Version, Rollback Workflows
 
-- plain numeric release tags instead of `v`-prefixed tags
-- `Cargo.toml` as version source
-- `cargo build` as the default SHIP build gate
-- `cargo build --release` only for explicit deployment/install/packaging work
-- Rust + iced project structure and Windows installer assets under `installer/windows/`
-- docs paths under `docs/` plus `PLAN.md`
-- Australian English conventions
+These workflows follow the same runner-first pattern. See `.github/TCTBP Cheatsheet.md` for the quick-reference command paths and `.github/TCTBP.json` for the complete workflow orders and policies.
+
+---
+
+## Permissions Expectations (Authoritative)
+
+### Allowed by Default
+
+- Local file operations
+- Tests, lint, and build
+- Commits and local tags
+- Branch switching and merging
+- Non-destructive remote reads such as fetch, logs, and diffs
+- Repo-defined non-destructive deployment checks
+
+### Require Explicit Approval
+
+- Push to any remote unless the active workflow trigger grants it
+- Delete branches
+- Force-push
+- Rewrite history
+- Hard reset or destructive checkout
+- Rebase as a sync shortcut
+- Modify remotes
+
+---
+
+## Failure Behaviour
+
+On any failure:
+
+- Stop immediately
+- Explain the failure
+- Propose safe recovery options
+- Prefer preserving both local and remote history over forcing convergence
+- Never rewrite history without approval
+- Suggest using the `abort` trigger for guided recovery if partial state remains
+
+---
+
+## Appendix
+
+`.github/TCTBP.json` is the canonical machine-readable reference.
+
+Do not duplicate the full JSON profile in this document. Keep repo-specific values and placeholders in the JSON file, and keep behavioural interpretation here.
