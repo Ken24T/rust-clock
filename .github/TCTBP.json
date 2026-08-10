@@ -42,7 +42,7 @@
       "requireBuildBeforeShip": true
     },
     "versioning": {
-      "sourceOfTruth": "Cargo.toml:package.version",
+      "sourceOfTruth": "Cargo.toml",
       "tagFormat": "{version}"
     },
     "releaseBuildPolicy": "explicit-installation-or-deployment-only",
