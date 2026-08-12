@@ -8,13 +8,21 @@
     "templateInstructions": "This repository uses the TCTBP workflow as a repo-specific profile. Preserve Rust Clock commands, docs paths, version source, tag format, status-report tables, deployment expectations, and local runtime conventions when updating these files."
   },
   "branchModel": {
-    "strategy": "simple",
+    "strategy": "staged",
     "strategies": {
       "simple": {
         "description": "Single production branch only. Suitable for template repos, libraries, and non-deployed projects.",
         "productionBranch": "main",
         "promoteEnabled": false,
         "deployStagingEnabled": false
+      },
+      "staged": {
+        "description": "Three environment branches: development for daily work, staging for field testing and review, and main for production releases.",
+        "workingBranch": "development",
+        "stagingBranch": "staging",
+        "productionBranch": "main",
+        "promoteEnabled": true,
+        "deployEnabled": true
       }
     }
   },
@@ -89,6 +97,14 @@
       "checkpoint please",
       "deploy",
       "deploy please",
+      "promote",
+      "promote please",
+      "promote staging",
+      "promote staging please",
+      "promote production",
+      "promote production please",
+      "promote prod",
+      "promote prod please",
       "handover",
       "handover please",
       "resume",
@@ -346,7 +362,7 @@
   "branch": {
     "enabled": true,
     "purpose": "Safely close out the current published branch, reconcile the default branch, and either stop on the default branch or create the next work branch without losing code.",
-    "defaultBranch": "main",
+    "defaultBranch": "development",
     "allowCloseoutWithoutNewBranch": true,
     "stopIfDetachedHead": true,
     "validateTargetBranchNameBeforeWorkflow": true,
@@ -420,6 +436,7 @@
     "currentBranchMayOverrideMetadataOnlyWhenDescendantOfMetadataCommit": true,
     "excludeBranchesFromCandidateDetection": [
       "origin/main",
+      "origin/staging",
       "origin/HEAD",
       "origin/tctbp/handover-state"
     ],
