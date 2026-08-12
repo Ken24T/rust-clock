@@ -24,10 +24,12 @@ use iced::widget::{canvas, operation};
 use iced::{window, Color, Element, Fill, Point, Size, Subscription, Task};
 use std::time::Instant;
 
-/// Number of early ticks during which Linux window hints are retried.
-const STARTUP_HINT_ATTEMPTS: u8 = 20;
+/// Number of early ticks during which Linux window hints and the saved main
+/// window layout are retried. Kept generous so a monitor that is slow to
+/// report itself after boot still gets the window clamped on-screen.
+const STARTUP_HINT_ATTEMPTS: u8 = 60;
 /// Retry interval for Linux startup window hints.
-const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 250;
+const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 500;
 /// Smooth-second animation cadence. 67 ms is approximately 15 fps.
 const SMOOTH_SECONDS_INTERVAL_MS: u64 = 67;
 const RECOVERY_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -672,7 +674,7 @@ impl ClockApp {
 
         for command in pending_commands {
             match command {
-                TrayCommand::FocusClock => tasks.push(focus_clock_window()),
+                TrayCommand::FocusClock => tasks.push(focus_clock_window(self)),
                 TrayCommand::ShowAlarmPanel => {
                     tasks.push(self.show_alarm_panel_from_tray());
                 }
@@ -1117,9 +1119,18 @@ impl ClockApp {
 
 // -- Helper functions ------------------------------------------------------
 
-fn focus_clock_window() -> Task<Message> {
-    window::oldest()
-        .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]))
+/// Bring the main clock window back to a visible, focused state.
+///
+/// Un-minimises and focuses the window, re-applies the saved (clamped)
+/// layout so it cannot be stranded off-screen, and re-applies the Linux
+/// window hints (used by the tray "Show Clock" action and tray activation).
+fn focus_clock_window(app: &mut ClockApp) -> Task<Message> {
+    let restore_layout = app.apply_saved_main_window_layout();
+    let restore_hints = window::oldest().and_then(apply_startup_window_hints);
+    let bring_to_front = window::oldest()
+        .and_then(|id| Task::batch([window::minimize(id, false), window::gain_focus(id)]));
+
+    Task::batch([restore_layout, restore_hints, bring_to_front])
 }
 
 fn main_window_layout(config: &AppConfig) -> (Point, Size) {
@@ -1258,7 +1269,11 @@ fn clamp_clock_position(anchor: Point, size: f32) -> Point {
             anchor.y.clamp(min_y, max_y.max(min_y)),
         )
     } else {
-        Point::new(anchor.x.max(POPUP_MARGIN), anchor.y.max(POPUP_MARGIN))
+        // No usable work area (e.g. the X11 connection is not ready during
+        // early boot). Never return the raw anchor here: a saved position on
+        // a monitor that is not active yet would otherwise strand the window
+        // off-screen. Fall back to a safe top-left placement instead.
+        Point::new(POPUP_MARGIN, POPUP_MARGIN)
     }
 }
 
