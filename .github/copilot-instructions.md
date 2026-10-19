@@ -1,5 +1,15 @@
 # Rust Clock – Copilot Instructions
 
+## Shared code and documentation policy
+
+This repository adopts shared-development-policy 1.0.0. Read
+`.github/DEVELOPMENT_POLICY.md` and its machine-readable companion
+`.github/development-policy.json` for code, configuration and documentation work.
+Use `node scripts/check-modularity.cjs --changed` for advisory size signals.
+Record design reviews for new or materially changed large files in change notes.
+File size alone never requires a split or grants approval to commit or publish.
+Existing correctness, security, Git and approval protections remain in force.
+
 ## Project Overview
 
 Rust Clock is a Linux-first analog clock widget built with Rust and `iced`, with alarms, timers, tray integration, and desktop-widget behaviour on Linux. Windows is supported as an early cross-platform baseline with a simpler floating-widget interpretation and installer packaging.
