@@ -415,5 +415,11 @@
     "policy": "everyCommit",
     "skipWhenNoBump": true,
     "format": "{version}"
+  },
+  "begin": {
+    "contract": "tctbp-begin/1",
+    "executionCommand": "node scripts/tctbp-run-begin.cjs",
+    "profile": ".github/TCTBP_BEGIN.json",
+    "owner": "TCTBP common core; project-owned capabilities"
   }
 }
