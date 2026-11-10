@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::placement::MonitorPlacement;
 use crate::theme::ThemeConfig;
 
 pub const MIN_CLOCK_SIZE: u32 = 50;
@@ -63,6 +64,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub position: Option<(i32, i32)>,
 
+    /// Monitor and corner offsets chosen by the last deliberate Linux drag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor_placement: Option<MonitorPlacement>,
+
     /// Name of a built-in theme preset (classic, dark, minimal, transparent).
     /// Ignored when a `[theme]` section is present.
     #[serde(default = "default_theme")]
@@ -116,6 +121,7 @@ impl Default for AppConfig {
             size_preset: Some(ClockSizePreset::default()),
             size_adjust_percent: Some(0),
             position: None,
+            monitor_placement: None,
             theme: default_theme(),
             smooth_seconds: true,
             show_date: true,
@@ -329,6 +335,7 @@ mod tests {
         assert_eq!(deserialised.size_adjust_percent, config.size_adjust_percent);
         assert_eq!(deserialised.theme, config.theme);
         assert_eq!(deserialised.position, config.position);
+        assert_eq!(deserialised.monitor_placement, config.monitor_placement);
         assert_eq!(deserialised.opacity_percent, config.opacity_percent);
     }
 
@@ -344,8 +351,22 @@ mod tests {
         assert!(config.smooth_seconds);
         assert!(config.show_date);
         assert!(config.position.is_none());
+        assert!(config.monitor_placement.is_none());
         assert_eq!(config.opacity_percent, 100);
         assert!(config.theme_config.is_none());
+    }
+
+    #[test]
+    fn saved_monitor_corner_survives_a_config_round_trip() {
+        let mut config = AppConfig::default();
+        config.monitor_placement = Some(MonitorPlacement {
+            monitor: "DP-4".into(),
+            right: 12,
+            top: 12,
+        });
+        let serialised = toml::to_string_pretty(&config).expect("serialise monitor placement");
+        let restored: AppConfig = toml::from_str(&serialised).expect("restore monitor placement");
+        assert_eq!(restored.monitor_placement, config.monitor_placement);
     }
 
     #[test]

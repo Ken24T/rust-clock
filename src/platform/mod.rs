@@ -33,6 +33,35 @@ pub struct WorkArea {
     pub height: f32,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Monitor {
+    pub name: String,
+    pub area: WorkArea,
+}
+
+/// X11 monitor identities and geometry. Unsupported backends return no snapshot.
+pub fn monitor_layout() -> Option<Vec<Monitor>> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::monitor_layout()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+pub fn primary_button_down() -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::primary_button_down()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 pub fn capabilities() -> PlatformCapabilities {
     implementation::capabilities()
 }

@@ -34,6 +34,8 @@ When the app starts, it tries to:
 
 If your display layout changed since the last run, Rust Clock clamps the saved clock position back onto the nearest active monitor instead of blindly reopening at stale off-screen coordinates.
 
+On Linux/X11, Rust Clock also remembers the monitor and the distance from its top and right edges. If that monitor disconnects, the clock temporarily uses an available display and restores the chosen corner within a few seconds of reconnecting. Automatic desktop rearrangements do not overwrite your saved placement. Recovery continues after the initial startup period.
+
 ## Using The Clock
 
 The main clock window shows:
@@ -52,6 +54,8 @@ The main clock window shows:
 - Press `Ctrl+Q` to quit the app
 
 When you move the clock, its position is saved automatically.
+
+On Linux/X11, the new placement is saved when you finish dragging. A drag interrupted by a display layout change preserves the previous placement.
 
 ## Settings Window
 
@@ -252,6 +256,7 @@ Available top-level settings include:
 - `size_adjust_percent`: bounded relative adjustment around the selected preset
 - `opacity_percent`: global clock opacity percentage
 - `position`: saved clock position as `[x, y]`
+- `monitor_placement`: optional Linux/X11 section with the monitor name and `right`/`top` offsets in pixels; updated after deliberate dragging
 - `theme`: built-in theme name
 - `smooth_seconds`: `true` or `false`
 - `show_date`: `true` or `false`

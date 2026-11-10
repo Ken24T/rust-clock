@@ -11,6 +11,7 @@ Rust Clock is an analog clock widget built with Rust and [iced](https://iced.rs)
 - Transparent, borderless main window intended to sit below normal windows
 - Drag-to-move clock placement with saved position
 - Saved placement clamped back onto the nearest active monitor on restart when displays change
+- Linux monitor-relative placement restored after a display reconnects, without losing the chosen corner during automatic desktop moves
 - Right-click settings window for theme, size, and display toggles
 - Four built-in themes: Classic, Dark, Minimal, Transparent
 - Separate clock opacity control so any built-in theme can be tuned from subtle transparency to fully opaque

@@ -2,7 +2,43 @@ use iced::{window, Task};
 
 use crate::tray::{self, SystemTrayHandle, TrayCommand};
 
-use super::{PlatformCapabilities, WorkArea};
+use super::{Monitor, PlatformCapabilities, WorkArea};
+
+pub fn monitor_layout() -> Option<Vec<Monitor>> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::{randr::ConnectionExt as _, xproto::ConnectionExt as _};
+
+    let (conn, screen_num) = x11rb::rust_connection::RustConnection::connect(None).ok()?;
+    let root = conn.setup().roots.get(screen_num)?.root;
+    let reply = conn.randr_get_monitors(root, true).ok()?.reply().ok()?;
+    let mut monitors = Vec::new();
+    for monitor in reply.monitors {
+        if monitor.width == 0 || monitor.height == 0 {
+            continue;
+        }
+        let name = conn.get_atom_name(monitor.name).ok()?.reply().ok()?.name;
+        monitors.push(Monitor {
+            name: String::from_utf8(name).ok()?,
+            area: WorkArea {
+                x: monitor.x as f32,
+                y: monitor.y as f32,
+                width: monitor.width as f32,
+                height: monitor.height as f32,
+            },
+        });
+    }
+    monitors.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(monitors)
+}
+
+pub fn primary_button_down() -> Option<bool> {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{ConnectionExt as _, KeyButMask};
+    let (conn, screen_num) = x11rb::rust_connection::RustConnection::connect(None).ok()?;
+    let root = conn.setup().roots.get(screen_num)?.root;
+    let reply = conn.query_pointer(root).ok()?.reply().ok()?;
+    Some(reply.mask.contains(KeyButMask::BUTTON1))
+}
 
 pub fn capabilities() -> PlatformCapabilities {
     PlatformCapabilities {

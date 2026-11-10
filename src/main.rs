@@ -15,6 +15,7 @@ mod clock_face;
 mod config;
 mod context_menu;
 mod hover_panel;
+mod placement;
 mod platform;
 mod theme;
 mod tray;
@@ -30,6 +31,9 @@ use std::time::Instant;
 const STARTUP_HINT_ATTEMPTS: u8 = 60;
 /// Retry interval for Linux startup window hints.
 const STARTUP_HINT_RETRY_INTERVAL_MS: u64 = 500;
+/// Tolerance for recognising a placement we asked the window manager for, as
+/// opposed to a move the user made, in a window-moved event.
+const SELF_MOVE_TOLERANCE_PX: f32 = 4.0;
 /// Smooth-second animation cadence. 67 ms is approximately 15 fps.
 const SMOOTH_SECONDS_INTERVAL_MS: u64 = 67;
 const RECOVERY_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -44,6 +48,7 @@ use alarm::{
 use clock_face::{ClockFace, HoverWindowContent, OverlayHitTarget};
 use config::{AppConfig, ClockSizePreset};
 use context_menu::ContextMenu;
+use placement::{MonitorPlacement, PlacementRecovery};
 use platform::{start_system_tray, SystemTrayHandle, TrayCommand};
 use theme::window_chrome;
 
@@ -164,6 +169,13 @@ struct ClockApp {
     tray_handle: Option<SystemTrayHandle>,
     tray_receiver: Option<std::sync::mpsc::Receiver<TrayCommand>>,
     last_recovery_snapshot_at: Option<Instant>,
+    /// Placement we last asked the window manager to apply to the main window.
+    ///
+    /// Window-moved events matching it are ours: a startup placement that had
+    /// to fall back onto another monitor must not be saved over the anchor the
+    /// user chose.
+    expected_main_window_move: Option<Point>,
+    placement_recovery: PlacementRecovery,
 }
 
 /// Messages produced by the application.
@@ -173,6 +185,11 @@ enum Message {
     Tick,
     /// Retry Linux startup window hints.
     ApplyStartupHints,
+    /// Detect display changes throughout the clock's lifetime.
+    CheckMonitorLayout,
+    /// Finish a deliberate drag once the window manager releases the mouse.
+    CheckDrag,
+    DragFinished(Option<Point>),
     /// A control window finished opening.
     ControlWindowOpened(window::Id),
     /// A detached hover window finished opening.
@@ -185,7 +202,7 @@ enum Message {
     StartDrag,
     /// Hover detail changed and may need a detached reminder window update.
     HoverWindowChanged(Option<OverlayHitTarget>),
-    /// Window moved to a new position — save it.
+    /// A window moved — persist moves of the main clock window the user made.
     WindowMoved(window::Id, Point),
     /// User requested that a window close.
     WindowCloseRequested(window::Id),
@@ -303,6 +320,8 @@ impl ClockApp {
             tray_handle,
             tray_receiver,
             last_recovery_snapshot_at: None,
+            expected_main_window_move: None,
+            placement_recovery: PlacementRecovery::new(platform::monitor_layout()),
         };
         app.sync_clock_face_active_items();
         app
@@ -321,13 +340,18 @@ impl ClockApp {
     }
 
     fn apply_saved_main_window_layout(&mut self) -> Task<Message> {
-        let (position, size) = main_window_layout(&self.config);
+        let (placement, size) = main_window_placement(&self.config);
+        let position = placement.position;
         let rounded_position = (position.x.round() as i32, position.y.round() as i32);
 
-        if self.config.position.is_some() && self.config.position != Some(rounded_position) {
+        // Only initialise a missing legacy anchor. Restoring or falling back
+        // while displays change must never replace a deliberate placement.
+        if self.config.position.is_none() && self.config.monitor_placement.is_none() {
             self.config.position = Some(rounded_position);
             self.save_config();
         }
+
+        self.expected_main_window_move = Some(position);
 
         window::oldest().and_then(move |id| {
             Task::batch([window::move_to(id, position), window::resize(id, size)])
@@ -342,6 +366,8 @@ impl ClockApp {
             clamped_position.y.round() as i32,
         ));
         self.save_config();
+
+        self.expected_main_window_move = Some(clamped_position);
 
         let mut tasks = vec![window::oldest().and_then(move |id| {
             Task::batch([
@@ -388,6 +414,53 @@ impl ClockApp {
                 &format!("Settings were not written to disk: {e}"),
             );
         }
+    }
+
+    /// True when `point` is the placement we last asked the window manager for.
+    fn matches_requested_main_window_move(&mut self, point: Point) -> bool {
+        let Some(expected) = self.expected_main_window_move else {
+            return false;
+        };
+
+        (expected.x - point.x).abs() <= SELF_MOVE_TOLERANCE_PX
+            && (expected.y - point.y).abs() <= SELF_MOVE_TOLERANCE_PX
+    }
+
+    fn save_deliberate_position(&mut self, point: Point, monitors: Option<Vec<platform::Monitor>>) {
+        let point = clamp_clock_position(point, self.config.size as f32);
+        self.config.position = Some((point.x.round() as i32, point.y.round() as i32));
+        if let Some(monitors) = monitors {
+            let centre = point
+                + iced::Vector::new(self.config.size as f32 / 2.0, self.config.size as f32 / 2.0);
+            if let Some(monitor) = monitors.iter().find(|monitor| {
+                centre.x >= monitor.area.x
+                    && centre.x < monitor.area.x + monitor.area.width
+                    && centre.y >= monitor.area.y
+                    && centre.y < monitor.area.y + monitor.area.height
+            }) {
+                self.config.monitor_placement = Some(MonitorPlacement::at_position(
+                    monitor,
+                    point,
+                    self.config.size as f32,
+                ));
+            }
+        }
+        self.save_config();
+    }
+
+    /// Keep an open hover popup anchored to the current clock position.
+    fn reposition_hover_popup(&mut self) -> Task<Message> {
+        let Some(hover_id) = self.hover_window else {
+            return Task::none();
+        };
+
+        let popup_size = self
+            .hover_window_content
+            .as_ref()
+            .map(hover_window_size)
+            .unwrap_or(Size::new(260.0, 140.0));
+
+        window::move_to(hover_id, hover_window_position(&self.config, popup_size))
     }
 
     fn open_control_window(&mut self, content: ControlWindowContent) -> Task<Message> {
@@ -701,13 +774,49 @@ impl ClockApp {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::CheckMonitorLayout => {
+                if self
+                    .placement_recovery
+                    .should_restore(platform::monitor_layout())
+                {
+                    self.apply_saved_main_window_layout()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::CheckDrag => {
+                if self
+                    .placement_recovery
+                    .start_finishing_drag(platform::primary_button_down())
+                {
+                    window::oldest()
+                        .and_then(window::position)
+                        .map(Message::DragFinished)
+                } else {
+                    Task::none()
+                }
+            }
+            Message::DragFinished(point) => {
+                let monitors = platform::monitor_layout();
+                if self.placement_recovery.finish_drag(&monitors) {
+                    if let Some(point) = point {
+                        self.save_deliberate_position(point, monitors);
+                    }
+                }
+                self.reposition_hover_popup()
+            }
             Message::ApplyStartupHints => {
                 if self.startup_hint_attempts >= STARTUP_HINT_ATTEMPTS {
                     Task::none()
                 } else {
                     self.startup_hint_attempts += 1;
+                    let layout = if self.placement_recovery.is_dragging() {
+                        Task::none()
+                    } else {
+                        self.apply_saved_main_window_layout()
+                    };
                     Task::batch([
-                        self.apply_saved_main_window_layout(),
+                        layout,
                         window::oldest().and_then(apply_startup_window_hints),
                     ])
                 }
@@ -747,6 +856,11 @@ impl ClockApp {
             }
             Message::PollTrayCommands => self.poll_tray_commands(),
             Message::StartDrag => {
+                self.expected_main_window_move = None;
+                if cfg!(target_os = "linux") {
+                    self.placement_recovery
+                        .begin_drag(platform::monitor_layout());
+                }
                 let drag = window::oldest().and_then(window::drag);
                 let close_control = self.close_control_window();
                 let close_hover = self.close_hover_window();
@@ -756,24 +870,19 @@ impl ClockApp {
             Message::WindowMoved(id, point) => {
                 if Some(id) == self.control_window || Some(id) == self.hover_window {
                     Task::none()
+                } else if self.matches_requested_main_window_move(point) {
+                    // The window manager applied a placement we asked for
+                    // (startup restore, show clock, size change), so this is not
+                    // a user move: a fallback placement must not overwrite the
+                    // saved anchor.
+                    self.reposition_hover_popup()
+                } else if cfg!(target_os = "linux") {
+                    self.placement_recovery.unsolicited_move();
+                    Task::none()
                 } else {
-                    let clamped_position = clamp_clock_position(point, self.config.size as f32);
-                    self.config.position = Some((
-                        clamped_position.x.round() as i32,
-                        clamped_position.y.round() as i32,
-                    ));
-                    self.save_config();
+                    self.save_deliberate_position(point, None);
 
-                    if let Some(hover_id) = self.hover_window {
-                        let popup_size = self
-                            .hover_window_content
-                            .as_ref()
-                            .map(hover_window_size)
-                            .unwrap_or(Size::new(260.0, 140.0));
-                        window::move_to(hover_id, hover_window_position(&self.config, popup_size))
-                    } else {
-                        Task::none()
-                    }
+                    self.reposition_hover_popup()
                 }
             }
             Message::WindowCloseRequested(id) => {
@@ -1053,6 +1162,17 @@ impl ClockApp {
             std::time::Duration::from_secs(1)
         };
         let tick = iced::time::every(tick_interval).map(|_| Message::Tick);
+        let monitor_checks = if cfg!(target_os = "linux") {
+            iced::time::every(std::time::Duration::from_secs(2))
+                .map(|_| Message::CheckMonitorLayout)
+        } else {
+            Subscription::none()
+        };
+        let drag_checks = if self.placement_recovery.is_dragging() {
+            iced::time::every(std::time::Duration::from_millis(150)).map(|_| Message::CheckDrag)
+        } else {
+            Subscription::none()
+        };
         let startup_hint_retries = if self.capabilities.desktop_window_hints
             && self.startup_hint_attempts < STARTUP_HINT_ATTEMPTS
         {
@@ -1110,6 +1230,8 @@ impl ClockApp {
         Subscription::batch([
             tick,
             startup_hint_retries,
+            monitor_checks,
+            drag_checks,
             tray_events,
             window_events,
             keyboard_events,
@@ -1134,17 +1256,41 @@ fn focus_clock_window(app: &mut ClockApp) -> Task<Message> {
 }
 
 fn main_window_layout(config: &AppConfig) -> (Point, Size) {
+    let (placement, size) = main_window_placement(config);
+    (placement.position, size)
+}
+
+fn main_window_placement(config: &AppConfig) -> (ClockPlacement, Size) {
     let size = config.size as f32;
-    (main_window_position(config), Size::new(size, size))
+    if let (Some(saved), Some(monitors)) = (&config.monitor_placement, platform::monitor_layout()) {
+        if let Some(position) = saved.position(&monitors, size) {
+            let area = monitors
+                .iter()
+                .find(|monitor| monitor.name == saved.monitor)
+                .map(|monitor| monitor.area);
+            return (
+                placement_for_work_area(position, size, area),
+                Size::new(size, size),
+            );
+        }
+    }
+    let mut placement = resolve_clock_placement(saved_anchor(config), size);
+    if config.monitor_placement.is_some() {
+        placement.on_saved_monitor = false;
+    }
+    (placement, Size::new(size, size))
 }
 
 fn main_window_position(config: &AppConfig) -> Point {
-    let anchor = config
+    main_window_placement(config).0.position
+}
+
+/// The position the user last saved for the clock.
+fn saved_anchor(config: &AppConfig) -> Point {
+    config
         .position
         .map(|(x, y)| Point::new(x as f32, y as f32))
-        .unwrap_or(Point::ORIGIN);
-
-    clamp_clock_position(anchor, config.size as f32)
+        .unwrap_or(Point::ORIGIN)
 }
 
 fn control_window_size(content: ControlWindowContent) -> Size {
@@ -1214,10 +1360,7 @@ fn control_window_position(content: ControlWindowContent, config: &AppConfig) ->
 
 fn popup_position(config: &AppConfig, popup_size: Size, y_offset: f32) -> Point {
     let clock_size = config.size as f32;
-    let anchor = config
-        .position
-        .map(|(x, y)| Point::new(x as f32, y as f32))
-        .unwrap_or(Point::ORIGIN);
+    let anchor = main_window_position(config);
     let monitor_point = Point::new(anchor.x + clock_size * 0.5, anchor.y + clock_size * 0.5);
 
     let desired_right_x = anchor.x + clock_size + POPUP_GAP;
@@ -1255,26 +1398,72 @@ fn popup_position(config: &AppConfig, popup_size: Size, y_offset: f32) -> Point 
     }
 }
 
-fn clamp_clock_position(anchor: Point, size: f32) -> Point {
+/// Where the clock should be placed, and whether that spot restores the anchor
+/// the user saved rather than a fallback onto another monitor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ClockPlacement {
+    position: Point,
+    /// True when the saved anchor's own monitor was active, so `position` came
+    /// from clamping the anchor inside the monitor the user chose.
+    on_saved_monitor: bool,
+}
+
+fn resolve_clock_placement(anchor: Point, size: f32) -> ClockPlacement {
     let monitor_point = Point::new(anchor.x + size * 0.5, anchor.y + size * 0.5);
 
-    if let Some(work_area) = platform::work_area_for_point(monitor_point.x, monitor_point.y) {
-        let min_x = work_area.x + POPUP_MARGIN;
-        let max_x = work_area.x + work_area.width - size - POPUP_MARGIN;
-        let min_y = work_area.y + POPUP_MARGIN;
-        let max_y = work_area.y + work_area.height - size - POPUP_MARGIN;
+    placement_for_work_area(
+        anchor,
+        size,
+        platform::work_area_for_point(monitor_point.x, monitor_point.y),
+    )
+}
 
-        Point::new(
-            anchor.x.clamp(min_x, max_x.max(min_x)),
-            anchor.y.clamp(min_y, max_y.max(min_y)),
-        )
-    } else {
-        // No usable work area (e.g. the X11 connection is not ready during
-        // early boot). Never return the raw anchor here: a saved position on
-        // a monitor that is not active yet would otherwise strand the window
-        // off-screen. Fall back to a safe top-left placement instead.
-        Point::new(POPUP_MARGIN, POPUP_MARGIN)
+/// Resolve a placement against an already-looked-up work area.
+///
+/// Kept separate from the X11 lookup so the fallback behaviour stays testable
+/// without a display server.
+fn placement_for_work_area(
+    anchor: Point,
+    size: f32,
+    work_area: Option<platform::WorkArea>,
+) -> ClockPlacement {
+    let monitor_point = Point::new(anchor.x + size * 0.5, anchor.y + size * 0.5);
+
+    match work_area {
+        Some(work_area) => {
+            let min_x = work_area.x + POPUP_MARGIN;
+            let max_x = work_area.x + work_area.width - size - POPUP_MARGIN;
+            let min_y = work_area.y + POPUP_MARGIN;
+            let max_y = work_area.y + work_area.height - size - POPUP_MARGIN;
+
+            let contains_anchor = monitor_point.x >= work_area.x
+                && monitor_point.x < work_area.x + work_area.width
+                && monitor_point.y >= work_area.y
+                && monitor_point.y < work_area.y + work_area.height;
+
+            ClockPlacement {
+                position: Point::new(
+                    anchor.x.clamp(min_x, max_x.max(min_x)),
+                    anchor.y.clamp(min_y, max_y.max(min_y)),
+                ),
+                on_saved_monitor: contains_anchor,
+            }
+        }
+        None => {
+            // No usable work area (e.g. the X11 connection is not ready during
+            // early boot). Never return the raw anchor here: a saved position on
+            // a monitor that is not active yet would otherwise strand the window
+            // off-screen. Fall back to a safe top-left placement instead.
+            ClockPlacement {
+                position: Point::new(POPUP_MARGIN, POPUP_MARGIN),
+                on_saved_monitor: false,
+            }
+        }
     }
+}
+
+fn clamp_clock_position(anchor: Point, size: f32) -> Point {
+    resolve_clock_placement(anchor, size).position
 }
 
 fn clock_radius(size: u32) -> f32 {
@@ -1353,5 +1542,66 @@ fn format_timer_label(secs: u64) -> String {
         format!("{}m timer", secs / 60)
     } else {
         format!("{secs}s timer")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::platform::WorkArea;
+
+    fn monitor(x: f32, y: f32, width: f32, height: f32) -> WorkArea {
+        WorkArea {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn keeps_a_saved_anchor_inside_its_own_monitor() {
+        let placement = placement_for_work_area(
+            Point::new(6663.0, 12.0),
+            165.0,
+            Some(monitor(5760.0, 0.0, 1080.0, 1920.0)),
+        );
+
+        assert!(placement.on_saved_monitor);
+        assert_eq!(placement.position, Point::new(6663.0, 12.0));
+    }
+
+    #[test]
+    fn flags_a_fallback_when_the_saved_monitor_is_missing() {
+        // Same anchor, but only the 4K monitor is up: the clock is still shown
+        // there, yet the placement is not the spot the user saved.
+        let placement = placement_for_work_area(
+            Point::new(6663.0, 12.0),
+            165.0,
+            Some(monitor(1920.0, 0.0, 3840.0, 2160.0)),
+        );
+
+        assert!(!placement.on_saved_monitor);
+        assert_eq!(placement.position, Point::new(5583.0, 12.0));
+    }
+
+    #[test]
+    fn flags_a_fallback_when_no_monitor_resolves() {
+        let placement = placement_for_work_area(Point::new(6663.0, 12.0), 165.0, None);
+
+        assert!(!placement.on_saved_monitor);
+        assert_eq!(placement.position, Point::new(POPUP_MARGIN, POPUP_MARGIN));
+    }
+
+    #[test]
+    fn clamps_an_anchor_that_sits_too_close_to_an_edge() {
+        let placement = placement_for_work_area(
+            Point::new(10.0, 700.0),
+            165.0,
+            Some(monitor(0.0, 615.0, 1920.0, 1080.0)),
+        );
+
+        assert!(placement.on_saved_monitor);
+        assert_eq!(placement.position, Point::new(POPUP_MARGIN, 700.0));
     }
 }
